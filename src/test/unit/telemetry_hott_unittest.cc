@@ -237,7 +237,7 @@ void closeSerialPort(serialPort_t *serialPort)
     UNUSED(serialPort);
 }
 
-serialPortConfig_t *findSerialPortConfig(serialPortFunction_e function)
+const serialPortConfig_t *findSerialPortConfig(serialPortFunction_e function)
 {
     UNUSED(function);
 
@@ -283,6 +283,11 @@ batteryState_e getConsumptionState(void)
 uint16_t getBatteryVoltage(void)
 {
     return testBatteryVoltage;
+}
+
+uint16_t getLegacyBatteryVoltage(void)
+{
+    return (testBatteryVoltage + 5) / 10;
 }
 
 int32_t getAmperage(void) {

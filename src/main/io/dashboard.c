@@ -47,12 +47,10 @@
 #include "common/typeconversion.h"
 
 #include "config/feature.h"
-#include "pg/pg.h"
-#include "pg/pg_ids.h"
 #include "pg/dashboard.h"
 #include "pg/rx.h"
 
-#include "fc/config.h"
+#include "config/config.h"
 #include "fc/controlrate_profile.h"
 #include "fc/rc_controls.h"
 #include "fc/runtime_config.h"
@@ -263,12 +261,12 @@ static void drawRxChannel(uint8_t channelIndex, uint8_t width)
 #define RX_CHANNELS_PER_PAGE_COUNT 14
 static void showRxPage(void)
 {
-    for (int channelIndex = 0; channelIndex < rxRuntimeConfig.channelCount && channelIndex < RX_CHANNELS_PER_PAGE_COUNT; channelIndex += 2) {
+    for (int channelIndex = 0; channelIndex < rxRuntimeState.channelCount && channelIndex < RX_CHANNELS_PER_PAGE_COUNT; channelIndex += 2) {
         i2c_OLED_set_line(bus, (channelIndex / 2) + PAGE_TITLE_LINE_COUNT);
 
         drawRxChannel(channelIndex, HALF_SCREEN_CHARACTER_COLUMN_COUNT);
 
-        if (channelIndex >= rxRuntimeConfig.channelCount) {
+        if (channelIndex >= rxRuntimeState.channelCount) {
             continue;
         }
 
@@ -450,7 +448,7 @@ static void showBatteryPage(void)
     uint8_t rowIndex = PAGE_TITLE_LINE_COUNT;
 
     if (batteryConfig()->voltageMeterSource != VOLTAGE_METER_NONE) {
-        tfp_sprintf(lineBuffer, "Volts: %d.%1d Cells: %d", getBatteryVoltage() / 10, getBatteryVoltage() % 10, getBatteryCellCount());
+        tfp_sprintf(lineBuffer, "Volts: %d.%02d Cells: %d", getBatteryVoltage() / 100, getBatteryVoltage() % 100, getBatteryCellCount());
         padLineBuffer();
         i2c_OLED_set_line(bus, rowIndex++);
         i2c_OLED_send_string(bus, lineBuffer);
@@ -484,12 +482,14 @@ static void showSensorsPage(void)
     i2c_OLED_set_line(bus, rowIndex++);
     i2c_OLED_send_string(bus, "        X     Y     Z");
 
+#if defined(USE_ACC)
     if (sensors(SENSOR_ACC)) {
         tfp_sprintf(lineBuffer, format, "ACC", lrintf(acc.accADC[X]), lrintf(acc.accADC[Y]), lrintf(acc.accADC[Z]));
         padLineBuffer();
         i2c_OLED_set_line(bus, rowIndex++);
         i2c_OLED_send_string(bus, lineBuffer);
     }
+#endif
 
     if (sensors(SENSOR_GYRO)) {
         tfp_sprintf(lineBuffer, format, "GYR", lrintf(gyro.gyroADCf[X]), lrintf(gyro.gyroADCf[Y]), lrintf(gyro.gyroADCf[Z]));
@@ -548,14 +548,14 @@ static void showTasksPage(void)
 
     i2c_OLED_set_line(bus, rowIndex++);
     i2c_OLED_send_string(bus, "Task max  avg mx% av%");
-    cfTaskInfo_t taskInfo;
-    for (cfTaskId_e taskId = 0; taskId < TASK_COUNT; ++taskId) {
+    taskInfo_t taskInfo;
+    for (taskId_e taskId = 0; taskId < TASK_COUNT; ++taskId) {
         getTaskInfo(taskId, &taskInfo);
         if (taskInfo.isEnabled && taskId != TASK_SERIAL) {// don't waste a line of the display showing serial taskInfo
-            const int taskFrequency = (int)(1000000.0f / ((float)taskInfo.latestDeltaTime));
-            const int maxLoad = (taskInfo.maxExecutionTime * taskFrequency + 5000) / 10000;
-            const int averageLoad = (taskInfo.averageExecutionTime * taskFrequency + 5000) / 10000;
-            tfp_sprintf(lineBuffer, format, taskId, taskInfo.maxExecutionTime, taskInfo.averageExecutionTime, maxLoad, averageLoad);
+            const int taskFrequency = (int)(1000000.0f / ((float)taskInfo.latestDeltaTimeUs));
+            const int maxLoad = (taskInfo.maxExecutionTimeUs * taskFrequency + 5000) / 10000;
+            const int averageLoad = (taskInfo.averageExecutionTimeUs * taskFrequency + 5000) / 10000;
+            tfp_sprintf(lineBuffer, format, taskId, taskInfo.maxExecutionTimeUs, taskInfo.averageExecutionTimeUs, maxLoad, averageLoad);
             padLineBuffer();
             i2c_OLED_set_line(bus, rowIndex++);
             i2c_OLED_send_string(bus, lineBuffer);

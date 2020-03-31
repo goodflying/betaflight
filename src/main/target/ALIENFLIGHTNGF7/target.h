@@ -47,7 +47,6 @@
 
 #define USE_ACC
 #define USE_ACC_SPI_MPU6500
-#define ACC_1_ALIGN             CW270_DEG
 
 #define USE_GYRO
 #define USE_GYRO_SPI_MPU6500
@@ -81,8 +80,7 @@
 #define SDCARD_DETECT_PIN               PB11
 #define SDCARD_SPI_INSTANCE             SPI2
 #define SDCARD_SPI_CS_PIN               PB10
-#define SDCARD_DMA_STREAM_TX_FULL           DMA1_Stream4
-#define SDCARD_DMA_CHANNEL                  0
+#define SPI2_TX_DMA_OPT                     0     // DMA 1 Stream 4 Channel 0
 
 // Performance logging for SD card operations:
 // #define AFATFS_USE_INTROSPECTIVE_LOGGING
@@ -91,7 +89,10 @@
 #define FLASH_SPI_INSTANCE   SPI2
 
 #define USE_FLASHFS
+#define USE_FLASH_TOOLS
 #define USE_FLASH_M25P16
+#define USE_FLASH_W25N01G
+#define USE_FLASH_W25M02G
 
 #define USE_VCP
 
@@ -149,11 +150,11 @@
 #define USE_MAX7456
 #define MAX7456_SPI_INSTANCE    SPI3
 #define MAX7456_SPI_CS_PIN      PB12
-#define MAX7456_SPI_CLK         (SPI_CLOCK_STANDARD) // 10MHz
-#define MAX7456_RESTORE_CLK     (SPI_CLOCK_FAST)
 
 #define USE_ADC
-#define ADC1_DMA_STREAM         DMA2_Stream0
+#define ADC_INSTANCE         ADC1  // Default added
+#define ADC1_DMA_OPT            0  // DMA 2 Stream 0 Channel 0 
+
 //#define DEFAULT_VOLTAGE_METER_SOURCE VOLTAGE_METER_ADC
 //#define DEFAULT_CURRENT_METER_SOURCE CURRENT_METER_ADC
 #define VBAT_ADC_PIN            PC0
@@ -171,8 +172,6 @@
 #define DEFAULT_RX_FEATURE      FEATURE_RX_SERIAL
 #define SERIALRX_UART           SERIAL_PORT_USART2
 #define RX_CHANNELS_TAER
-
-#define USE_SERIAL_4WAY_BLHELI_INTERFACE
 
 #define TARGET_IO_PORTA         0xffff
 #define TARGET_IO_PORTB         0xffff

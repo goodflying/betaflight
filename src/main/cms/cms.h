@@ -24,6 +24,8 @@
 
 #include "common/time.h"
 
+#include "cms/cms_types.h"
+
 typedef enum {
     CMS_KEY_NONE,
     CMS_KEY_UP,
@@ -32,6 +34,7 @@ typedef enum {
     CMS_KEY_RIGHT,
     CMS_KEY_ESC,
     CMS_KEY_MENU,
+    CMS_KEY_SAVEMENU,
 } cms_key_e;
 
 extern bool cmsInMenu;
@@ -47,10 +50,11 @@ void cmsHandler(timeUs_t currentTimeUs);
 
 bool cmsDisplayPortSelect(displayPort_t *instance);
 void cmsMenuOpen(void);
-long cmsMenuChange(displayPort_t *pPort, const void *ptr);
-long cmsMenuExit(displayPort_t *pPort, const void *ptr);
-void cmsUpdate(uint32_t currentTimeUs);
+const void *cmsMenuChange(displayPort_t *pPort, const void *ptr);
+const void *cmsMenuExit(displayPort_t *pPort, const void *ptr);
 void cmsSetExternKey(cms_key_e extKey);
+void inhibitSaveMenu(void);
+void cmsAddMenuEntry(OSD_Entry *menuEntry, char *text, OSD_MenuElement type, CMSEntryFuncPtr func, void *data, uint8_t flags);
 
 #define CMS_STARTUP_HELP_TEXT1 "MENU:THR MID"
 #define CMS_STARTUP_HELP_TEXT2     "+ YAW LEFT"
@@ -60,3 +64,7 @@ void cmsSetExternKey(cms_key_e extKey);
 #define CMS_EXIT             (0)
 #define CMS_EXIT_SAVE        (1)
 #define CMS_EXIT_SAVEREBOOT  (2)
+#define CMS_POPUP_SAVE       (3)
+#define CMS_POPUP_SAVEREBOOT (4)
+#define CMS_POPUP_EXITREBOOT (5)
+

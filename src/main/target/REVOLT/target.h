@@ -39,7 +39,7 @@
 #define USE_BEEPER
 #define BEEPER_PIN              PB4
 
-#define ENABLE_DSHOT_DMAR       true
+#define ENABLE_DSHOT_DMAR       DSHOT_DMAR_ON
 
 #define USE_TRANSPONDER
 
@@ -48,9 +48,6 @@
 #define SERIALRX_UART           SERIAL_PORT_USART1
 
 #define USE_TARGET_CONFIG
-
-#define USE_SERIAL_4WAY_BLHELI_INTERFACE
-
 
 #define INVERTER_PIN_UART1      PC0
 
@@ -93,7 +90,6 @@
 #define GYRO_1_SPI_INSTANCE     SPI1
 
 #define GYRO_1_ALIGN            CW0_DEG
-#define ACC_1_ALIGN             CW0_DEG
 
 #define USE_EXTI
 #define USE_GYRO_EXTI
@@ -118,8 +114,6 @@
 #define USE_MAX7456
 #define MAX7456_SPI_INSTANCE    SPI2
 #define MAX7456_SPI_CS_PIN      PD2
-#define MAX7456_SPI_CLK         (SPI_CLOCK_STANDARD) // 10MHz
-#define MAX7456_RESTORE_CLK     (SPI_CLOCK_FAST)
 #endif
 
 

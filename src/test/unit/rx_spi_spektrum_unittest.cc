@@ -23,6 +23,8 @@
 extern "C" {
     #include "platform.h"
 
+    #include "drivers/io.h"
+
     #include "pg/pg.h"
     #include "pg/pg_ids.h"
     #include "pg/rx_spi.h"
@@ -83,7 +85,8 @@ extern "C" {
     extern bool isError = false;
 
     static const dsmReceiver_t empty = dsmReceiver_t();
-    static rxRuntimeConfig_t config = rxRuntimeConfig_t();
+    static rxRuntimeState_t config = rxRuntimeState_t();
+    static rxSpiExtiConfig_t extiConfig;
     static uint8_t packetLen;
     static uint8_t packet[16];
     static uint16_t rssi = 0;
@@ -127,6 +130,10 @@ extern "C" {
             pkt[i * 2 + 1] = (value >> 0) & 0xff;
         }
     }
+
+    static const rxSpiConfig_t injectedConfig = {
+        .extiIoTag = IO_TAG(PA0),
+    };
 }
 
 #include "unittest_macros.h"
@@ -136,7 +143,7 @@ extern "C" {
 TEST(RxSpiSpektrumUnitTest, TestInitUnbound)
 {
     dsmReceiver = empty;
-    spektrumSpiInit(nullptr, &config);
+    spektrumSpiInit(&injectedConfig, &config, &extiConfig);
     EXPECT_FALSE(dsmReceiver.bound);
     EXPECT_EQ(DSM_RECEIVER_BIND, dsmReceiver.status);
     EXPECT_EQ(DSM_INITIAL_BIND_CHANNEL, dsmReceiver.rfChannel);
@@ -154,7 +161,7 @@ TEST(RxSpiSpektrumUnitTest, TestInitBound)
 
     spektrumConfigMutable()->protocol = DSMX_11;
 
-    bool result = spektrumSpiInit(nullptr, &config);
+    bool result = spektrumSpiInit(&injectedConfig, &config, &extiConfig);
 
     EXPECT_TRUE(result);
     EXPECT_TRUE(dsmReceiver.bound);
@@ -174,7 +181,7 @@ TEST(RxSpiSpektrumUnitTest, TestInitBound)
     dsmReceiver = empty;
     spektrumConfigMutable()->protocol = DSM2_11;
 
-    spektrumSpiInit(nullptr, &config);
+    spektrumSpiInit(&injectedConfig, &config, &extiConfig);
 
     EXPECT_TRUE(dsmReceiver.bound);
     EXPECT_EQ(DSM2_11, dsmReceiver.protocol);
@@ -340,15 +347,13 @@ extern "C" {
     uint32_t micros(void) { return 0; }
     uint32_t millis(void) { return 0; }
 
-    void IOConfigGPIO(void) {}
     bool IORead(IO_t ) { return true; }
-    void IOInit(void) {}
-    IO_t IOGetByTag(ioTag_t ) { return IO_NONE; }
+    IO_t IOGetByTag(ioTag_t ) { return (IO_t)1; }
     void IOHi(IO_t ) {}
     void IOLo(IO_t ) {}
     void writeEEPROM(void) {}
 
-    bool cyrf6936Init(void) { return true; }
+    bool cyrf6936Init(IO_t ) { return true; }
     bool cyrf6936RxFinished (uint32_t *timestamp)
     {
         *timestamp = 0;
@@ -384,8 +389,9 @@ extern "C" {
     void rxSpiCommonIOInit(const rxSpiConfig_t *) {}
     void rxSpiLedBlinkRxLoss(rx_spi_received_e ) {}
     void rxSpiLedBlinkBind(void) {};
-    bool rxSpiCheckBindRequested(bool )
+    bool rxSpiCheckBindRequested(bool)
     {
         return false;
     }
+    bool rxSpiExtiConfigured(void) { return true; }
 }

@@ -43,10 +43,17 @@ typedef enum {
     SBAS_EGNOS,
     SBAS_WAAS,
     SBAS_MSAS,
-    SBAS_GAGAN
+    SBAS_GAGAN,
+    SBAS_NONE
 } sbasMode_e;
 
 #define SBAS_MODE_MAX SBAS_GAGAN
+
+typedef enum {
+    UBLOX_AIRBORNE = 0,
+    UBLOX_PEDESTRIAN,
+    UBLOX_DYNAMIC
+} ubloxMode_e;
 
 typedef enum {
     GPS_BAUDRATE_115200 = 0,
@@ -66,6 +73,13 @@ typedef enum {
     GPS_AUTOBAUD_ON
 } gpsAutoBaud_e;
 
+typedef enum {
+    UBLOX_ACK_IDLE = 0,
+    UBLOX_ACK_WAITING,
+    UBLOX_ACK_GOT_ACK,
+    UBLOX_ACK_GOT_NACK
+} ubloxAckState_e;
+
 #define GPS_BAUDRATE_MAX GPS_BAUDRATE_9600
 
 typedef struct gpsConfig_s {
@@ -74,6 +88,10 @@ typedef struct gpsConfig_s {
     gpsAutoConfig_e autoConfig;
     gpsAutoBaud_e autoBaud;
     uint8_t gps_ublox_use_galileo;
+    ubloxMode_e gps_ublox_mode;
+    uint8_t gps_set_home_point_once;
+    uint8_t gps_use_3d_speed;
+    uint8_t sbas_integrity;
 } gpsConfig_t;
 
 PG_DECLARE(gpsConfig_t, gpsConfig);
@@ -92,6 +110,7 @@ typedef struct gpsLocation_s {
 
 typedef struct gpsSolutionData_s {
     gpsLocation_t llh;
+    uint16_t speed3d;              // speed in 0.1m/s
     uint16_t groundSpeed;           // speed in 0.1m/s
     uint16_t groundCourse;          // degrees * 10
     uint16_t hdop;                  // generic HDOP value (*100)
@@ -102,7 +121,9 @@ typedef enum {
     GPS_MESSAGE_STATE_IDLE = 0,
     GPS_MESSAGE_STATE_INIT,
     GPS_MESSAGE_STATE_SBAS,
-    GPS_MESSAGE_STATE_GALILEO,
+    GPS_MESSAGE_STATE_GNSS,
+    GPS_MESSAGE_STATE_INITIALIZED,
+    GPS_MESSAGE_STATE_PEDESTRIAN_TO_AIRBORNE,
     GPS_MESSAGE_STATE_ENTRY_COUNT
 } gpsMessageState_e;
 
@@ -117,6 +138,9 @@ typedef struct gpsData_s {
     uint8_t state;                  // GPS thread state. Used for detecting cable disconnects and configuring attached devices
     uint8_t baudrateIndex;          // index into auto-detecting or current baudrate
     gpsMessageState_e messageState;
+
+    uint8_t ackWaitingMsgId;        // Message id when waiting for ACK
+    ubloxAckState_e ackState;
 } gpsData_t;
 
 #define GPS_PACKET_LOG_ENTRY_COUNT 21 // To make this useful we should log as many packets as we can fit characters a single line of a OLED display.
@@ -131,13 +155,6 @@ extern int16_t GPS_angle[ANGLE_INDEX_COUNT];                // it's the angles t
 extern float dTnav;             // Delta Time in milliseconds for navigation computations, updated with every good GPS read
 extern float GPS_scaleLonDown;  // this is used to offset the shrinking longitude as we go towards the poles
 extern int16_t nav_takeoff_bearing;
-// navigation mode
-typedef enum {
-    NAV_MODE_NONE = 0,
-    NAV_MODE_POSHOLD,
-    NAV_MODE_WP
-} navigationMode_e;
-extern navigationMode_e nav_mode;          // Navigation mode
 
 typedef enum {
     GPS_DIRECT_TICK = 1 << 0,

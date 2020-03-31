@@ -25,7 +25,7 @@ extern "C" {
     #include "pg/pg.h"
     #include "pg/pg_ids.h"
     #include "pg/rx.h"
-    #include "fc/config.h"
+    #include "config/config.h"
     #include "fc/controlrate_profile.h"
     #include "fc/core.h"
     #include "fc/rc_controls.h"
@@ -71,7 +71,7 @@ extern "C" {
     uint32_t targetPidLooptime;
     bool cmsInMenu = false;
     float axisPID_P[3], axisPID_I[3], axisPID_D[3], axisPIDSum[3];
-    rxRuntimeConfig_t rxRuntimeConfig = {};
+    rxRuntimeState_t rxRuntimeState = {};
 }
 
 uint32_t simulationFeatureFlags = 0;
@@ -88,6 +88,8 @@ TEST(VtxTest, PitMode)
     modeActivationConditionsMutable(0)->modeId = BOXVTXPITMODE;
     modeActivationConditionsMutable(0)->range.startStep = CHANNEL_VALUE_TO_STEP(1750);
     modeActivationConditionsMutable(0)->range.endStep = CHANNEL_VALUE_TO_STEP(CHANNEL_RANGE_MAX);
+
+    analyzeModeActivationConditions();
 
     // and
     vtxSettingsConfigMutable()->band = 0;
@@ -111,6 +113,7 @@ TEST(VtxTest, PitMode)
 
 // STUBS
 extern "C" {
+    uint8_t activePidLoopDenom = 1;
     uint32_t micros(void) { return simulationTime; }
     uint32_t millis(void) { return micros() / 1000; }
     bool rxIsReceivingSignal(void) { return simulationHaveRx; }
@@ -127,19 +130,20 @@ extern "C" {
     void saveConfigAndNotify(void) {}
     void blackboxFinish(void) {}
     bool accIsCalibrationComplete(void) { return true; }
-    bool isBaroCalibrationComplete(void) { return true; }
-    bool isGyroCalibrationComplete(void) { return gyroCalibDone; }
+    bool accHasBeenCalibrated(void) { return true; }
+    bool baroIsCalibrationComplete(void) { return true; }
+    bool gyroIsCalibrationComplete(void) { return gyroCalibDone; }
     void gyroStartCalibration(bool) {}
     bool isFirstArmingGyroCalibrationRunning(void) { return false; }
-    void pidController(const pidProfile_t *, const rollAndPitchTrims_t *, timeUs_t) {}
+    void pidController(const pidProfile_t *, timeUs_t) {}
     void pidStabilisationState(pidStabilisationState_e) {}
     void mixTable(timeUs_t , uint8_t) {};
     void writeMotors(void) {};
     void writeServos(void) {};
     bool calculateRxChannelsAndUpdateFailsafe(timeUs_t) { return true; }
     bool isMixerUsingServos(void) { return false; }
-    void gyroUpdate(timeUs_t) {}
-    timeDelta_t getTaskDeltaTime(cfTaskId_e) { return 0; }
+    void gyroUpdate() {}
+    timeDelta_t getTaskDeltaTimeUs(taskId_e) { return 0; }
     void updateRSSI(timeUs_t) {}
     bool failsafeIsMonitoring(void) { return false; }
     void failsafeStartMonitoring(void) {}
@@ -162,16 +166,27 @@ extern "C" {
     void blackboxUpdate(timeUs_t) {}
     void transponderUpdate(timeUs_t) {}
     void GPS_reset_home_position(void) {}
-    void accSetCalibrationCycles(uint16_t) {}
-    void baroSetCalibrationCycles(uint16_t) {}
+    void accStartCalibration(void) {}
+    void baroSetGroundLevel(void) {}
     void changePidProfile(uint8_t) {}
     void changeControlRateProfile(uint8_t) {}
     void dashboardEnablePageCycling(void) {}
     void dashboardDisablePageCycling(void) {}
     bool imuQuaternionHeadfreeOffsetSet(void) { return true; }
-    void rescheduleTask(cfTaskId_e, uint32_t) {}
+    void rescheduleTask(taskId_e, timeDelta_t) {}
     bool usbCableIsInserted(void) { return false; }
     bool usbVcpIsConnected(void) { return false; }
     void pidSetAntiGravityState(bool newState) { UNUSED(newState); }
     void osdSuppressStats(bool) {}
+    void pidSetItermReset(bool) {}
+    void applyAccelerometerTrimsDelta(rollAndPitchTrims_t*) {}
+    bool isFixedWing(void) { return false; }
+    void compassStartCalibration(void) {}
+    bool compassIsCalibrationComplete(void) { return true; }
+    bool isUpright(void) { return true; }
+    void blackboxLogEvent(FlightLogEvent, union flightLogEventData_u *) {};
+    void gyroFiltering(timeUs_t) {};
+    timeDelta_t rxGetFrameDelta(timeDelta_t *) { return 0; }
+    void updateRcRefreshRate(timeUs_t) {};
+    uint16_t getAverageSystemLoadPercent(void) { return 0; }
 }

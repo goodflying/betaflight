@@ -30,6 +30,9 @@
 #define BEEPER_PIN              PB2
 #define BEEPER_INVERTED
 
+#define ENABLE_DSHOT_DMAR       DSHOT_DMAR_AUTO
+#define DSHOT_BITBANG_DEFAULT   DSHOT_BITBANG_OFF
+
 // *************** Gyro & ACC **********************
 #define USE_SPI
 #define USE_SPI_DEVICE_1
@@ -53,7 +56,6 @@
 #define USE_ACC
 #define USE_ACC_SPI_MPU6000
 #define USE_ACC_SPI_MPU6500
-#define ACC_1_ALIGN             CW180_DEG
 
 // *************** Baro **************************
 #define USE_I2C
@@ -103,13 +105,14 @@
 
 // *************** ADC *****************************
 #define USE_ADC
-#define ADC1_DMA_STREAM         DMA2_Stream0
+#define ADC_INSTANCE         ADC1  // Default added
+#define ADC1_DMA_OPT            0  // DMA 2 Stream 0 Channel 0 
+
 #define VBAT_ADC_PIN            PB0
 #define CURRENT_METER_ADC_PIN   PB1
 //#define RSSI_ADC_PIN            PA0
 
 #define USE_ESCSERIAL
-#define USE_SERIAL_4WAY_BLHELI_INTERFACE
 
 #define DEFAULT_FEATURES                (FEATURE_OSD | FEATURE_TELEMETRY | FEATURE_SOFTSERIAL)
 #define DEFAULT_VOLTAGE_METER_SOURCE    VOLTAGE_METER_ADC
@@ -122,4 +125,3 @@
 
 #define USABLE_TIMER_CHANNEL_COUNT 10
 #define USED_TIMERS             ( TIM_N(1)|TIM_N(2)|TIM_N(3)|TIM_N(4)|TIM_N(5)|TIM_N(9) )
-
