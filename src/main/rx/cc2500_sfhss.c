@@ -125,7 +125,7 @@ const cc2500RegisterConfigElement_t cc2500SfhssConfigPart2[] =
     { CC2500_3E_PATABLE,  0xFF }
 };
 
-static void initialise()
+static void initialise(void)
 {
     cc2500Reset();
 
@@ -188,7 +188,7 @@ static bool sfhssPacketParse(uint8_t *packet, bool check_txid)
     return true;
 }
 
-void sfhssRx(void)
+static void sfhssRx(void)
 {
     cc2500Strobe(CC2500_SIDLE);
     cc2500WriteReg(CC2500_23_FSCAL3, calData[sfhss_channel][0]);
@@ -278,7 +278,7 @@ static bool tune3Rx(uint8_t *packet)
     return false;
 }
 
-void sfhssnextChannel(void)
+static void sfhssnextChannel(void)
 {
     do {
         sfhss_channel += sfhss_code + 2;

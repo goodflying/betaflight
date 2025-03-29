@@ -26,7 +26,9 @@
 
 #include "platform.h"
 #include "common/time.h"
+#include "common/streambuf.h"
 
+#define VTX_SETTINGS_MIN_FREQUENCY_MHZ 5000          //min freq (in MHz) for 'vtx_freq' setting
 #define VTX_SETTINGS_MAX_FREQUENCY_MHZ 5999          //max freq (in MHz) for 'vtx_freq' setting
 
 #if defined(USE_VTX_RTC6705)
@@ -35,7 +37,7 @@
 
 #endif
 
-#if defined(USE_VTX_SMARTAUDIO) || defined(USE_VTX_TRAMP)
+#if defined(USE_VTX_SMARTAUDIO) || defined(USE_VTX_TRAMP) || defined(USE_VTX_MSP)
 
 #define VTX_SETTINGS_FREQCMD
 
@@ -51,6 +53,7 @@ typedef enum {
     // 2 reserved
     VTXDEV_SMARTAUDIO  = 3,
     VTXDEV_TRAMP       = 4,
+    VTXDEV_MSP         = 5,
     VTXDEV_UNKNOWN     = 0xFF,
 } vtxDevType_e;
 
@@ -92,7 +95,6 @@ typedef struct vtxDevice_s {
     const struct vtxVTable_s *const vTable;
 } vtxDevice_t;
 
-
 // {set,get}BandAndChannel: band and channel are 1 origin
 // {set,get}PowerByIndex: 0 = Power OFF, 1 = device dependent
 // {set,get}PitMode: 0 = OFF, 1 = ON
@@ -112,6 +114,8 @@ typedef struct vtxVTable_s {
     bool (*getFrequency)(const vtxDevice_t *vtxDevice, uint16_t *pFreq);
     bool (*getStatus)(const vtxDevice_t *vtxDevice, unsigned *status);
     uint8_t (*getPowerLevels)(const vtxDevice_t *vtxDevice, uint16_t *levels, uint16_t *powers);
+
+    void (*serializeCustomDeviceStatus)(const vtxDevice_t *vtxDevice, sbuf_t *dst);
 } vtxVTable_t;
 
 // 3.1.0
@@ -127,15 +131,19 @@ vtxDevice_t *vtxCommonDevice(void);
 void vtxCommonProcess(vtxDevice_t *vtxDevice, timeUs_t currentTimeUs);
 vtxDevType_e vtxCommonGetDeviceType(const vtxDevice_t *vtxDevice);
 bool vtxCommonDeviceIsReady(const vtxDevice_t *vtxDevice);
+
 void vtxCommonSetBandAndChannel(vtxDevice_t *vtxDevice, uint8_t band, uint8_t channel);
 void vtxCommonSetPowerByIndex(vtxDevice_t *vtxDevice, uint8_t level);
 void vtxCommonSetPitMode(vtxDevice_t *vtxDevice, uint8_t onoff);
 void vtxCommonSetFrequency(vtxDevice_t *vtxDevice, uint16_t freq);
+
 bool vtxCommonGetBandAndChannel(const vtxDevice_t *vtxDevice, uint8_t *pBand, uint8_t *pChannel);
 bool vtxCommonGetPowerIndex(const vtxDevice_t *vtxDevice, uint8_t *pIndex);
 bool vtxCommonGetFrequency(const vtxDevice_t *vtxDevice, uint16_t *pFreq);
 bool vtxCommonGetStatus(const vtxDevice_t *vtxDevice, unsigned *status);
 uint8_t vtxCommonGetVTXPowerLevels(const vtxDevice_t *vtxDevice, uint16_t *levels, uint16_t *powers);
+// end of VTable functions
+
 const char *vtxCommonLookupBandName(const vtxDevice_t *vtxDevice, int band);
 char vtxCommonLookupBandLetter(const vtxDevice_t *vtxDevice, int band);
 char vtxCommonGetBandLetter(const vtxDevice_t *vtxDevice, int band);
@@ -144,3 +152,4 @@ uint16_t vtxCommonLookupFrequency(const vtxDevice_t *vtxDevice, int band, int ch
 void vtxCommonLookupBandChan(const vtxDevice_t *vtxDevice, uint16_t freq, uint8_t *pBand, uint8_t *pChannel);
 const char *vtxCommonLookupPowerName(const vtxDevice_t *vtxDevice, int index);
 bool vtxCommonLookupPowerValue(const vtxDevice_t *vtxDevice, int index, uint16_t *pPowerValue);
+void vtxCommonSerializeDeviceStatus(const vtxDevice_t *vtxDevice, sbuf_t *dst);

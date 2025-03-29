@@ -36,7 +36,6 @@
  * Jeti EX Bus -> Serial TX (connect directly)
  */
 
-
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -56,7 +55,6 @@
 #include "rx/rx.h"
 #include "rx/jetiexbus.h"
 
-
 //
 // Serial driver for Jeti EX Bus receiver
 //
@@ -65,7 +63,6 @@
 #define JETIEXBUS_MIN_FRAME_GAP     1000
 #define JETIEXBUS_CHANNEL_COUNT     16                  // most Jeti TX transmit 16 channels
 
-
 #define EXBUS_START_CHANNEL_FRAME       (0x3E)
 #define EXBUS_START_REQUEST_FRAME       (0x3D)
 #define EXBUS_JETIBOX_REQUEST           (0x3B)
@@ -73,8 +70,6 @@
 #define EXBUS_CHANNELDATA               (0x3E03)        // Frame contains Channel Data
 #define EXBUS_CHANNELDATA_DATA_REQUEST  (0x3E01)        // Frame contains Channel Data, but with a request for data
 #define EXBUS_TELEMETRY_REQUEST         (0x3D01)        // Frame is a request Frame
-
-
 
 serialPort_t *jetiExBusPort;
 
@@ -91,16 +86,14 @@ static uint8_t jetiExBusChannelFrame[EXBUS_MAX_CHANNEL_FRAME_SIZE];
 uint8_t jetiExBusRequestFrame[EXBUS_MAX_REQUEST_FRAME_SIZE];
 
 static uint16_t jetiExBusChannelData[JETIEXBUS_CHANNEL_COUNT];
-static timeUs_t lastRcFrameTimeUs = 0;
 
 // Jeti Ex Bus CRC calculations for a frame
-uint16_t jetiExBusCalcCRC16(uint8_t *pt, uint8_t msgLen)
+uint16_t jetiExBusCalcCRC16(const uint8_t *pt, uint8_t msgLen)
 {
     uint16_t crc16_data = 0;
-    uint8_t data=0;
 
     for (uint8_t mlen = 0; mlen < msgLen; mlen++) {
-        data = pt[mlen] ^ ((uint8_t)(crc16_data) & (uint8_t)(0xFF));
+        uint8_t data = pt[mlen] ^ (crc16_data & 0xff);
         data ^= data << 4;
         crc16_data = ((((uint16_t)data << 8) | ((crc16_data & 0xFF00) >> 8))
                       ^ (uint8_t)(data >> 4)
@@ -109,7 +102,7 @@ uint16_t jetiExBusCalcCRC16(uint8_t *pt, uint8_t msgLen)
     return(crc16_data);
 }
 
-void jetiExBusDecodeChannelFrame(uint8_t *exBusFrame)
+static void jetiExBusDecodeChannelFrame(uint8_t *exBusFrame)
 {
     uint16_t value;
     uint8_t frameAddr;
@@ -130,7 +123,7 @@ void jetiExBusDecodeChannelFrame(uint8_t *exBusFrame)
     }
 }
 
-void jetiExBusFrameReset(void)
+static void jetiExBusFrameReset(void)
 {
     jetiExBusFramePosition = 0;
     jetiExBusFrameLength = EXBUS_MAX_CHANNEL_FRAME_SIZE;
@@ -154,6 +147,7 @@ static void jetiExBusDataReceive(uint16_t c, void *data)
 
     static timeUs_t jetiExBusTimeLast = 0;
     static uint8_t *jetiExBusFrame;
+    static uint8_t jetiExBusFrameMaxSize;
     const timeUs_t now = microsISR();
 
     // Check if we shall reset frame position due to time
@@ -170,16 +164,27 @@ static void jetiExBusDataReceive(uint16_t c, void *data)
         case EXBUS_START_CHANNEL_FRAME:
             jetiExBusFrameState = EXBUS_STATE_IN_PROGRESS;
             jetiExBusFrame = jetiExBusChannelFrame;
+            jetiExBusFrameMaxSize = EXBUS_MAX_CHANNEL_FRAME_SIZE;
             break;
 
         case EXBUS_START_REQUEST_FRAME:
             jetiExBusRequestState = EXBUS_STATE_IN_PROGRESS;
             jetiExBusFrame = jetiExBusRequestFrame;
+            jetiExBusFrameMaxSize = EXBUS_MAX_REQUEST_FRAME_SIZE;
             break;
 
         default:
             return;
         }
+    }
+
+    if (jetiExBusFramePosition == jetiExBusFrameMaxSize) {
+        // frame overrun
+        jetiExBusFrameReset();
+        jetiExBusFrameState = EXBUS_STATE_ZERO;
+        jetiExBusRequestState = EXBUS_STATE_ZERO;
+
+        return;
     }
 
     // Store in frame copy
@@ -229,7 +234,7 @@ static uint8_t jetiExBusFrameStatus(rxRuntimeState_t *rxRuntimeState)
         if (jetiExBusCalcCRC16(jetiExBusChannelFrame, jetiExBusChannelFrame[EXBUS_HEADER_MSG_LEN]) == 0) {
             jetiExBusDecodeChannelFrame(jetiExBusChannelFrame);
             frameStatus = RX_FRAME_COMPLETE;
-            lastRcFrameTimeUs = jetiTimeStampRequest;
+            rxRuntimeState->lastRcFrameTimeUs = jetiTimeStampRequest;
         }
         jetiExBusFrameState = EXBUS_STATE_ZERO;
     }
@@ -237,7 +242,7 @@ static uint8_t jetiExBusFrameStatus(rxRuntimeState_t *rxRuntimeState)
     return frameStatus;
 }
 
-static uint16_t jetiExBusReadRawRC(const rxRuntimeState_t *rxRuntimeState, uint8_t chan)
+static float jetiExBusReadRawRC(const rxRuntimeState_t *rxRuntimeState, uint8_t chan)
 {
     if (chan >= rxRuntimeState->channelCount)
         return 0;
@@ -245,21 +250,13 @@ static uint16_t jetiExBusReadRawRC(const rxRuntimeState_t *rxRuntimeState, uint8
     return (jetiExBusChannelData[chan]);
 }
 
-static timeUs_t jetiExBusFrameTimeUsFn(void)
-{
-    return lastRcFrameTimeUs;
-}
-
 bool jetiExBusInit(const rxConfig_t *rxConfig, rxRuntimeState_t *rxRuntimeState)
 {
     UNUSED(rxConfig);
 
     rxRuntimeState->channelCount = JETIEXBUS_CHANNEL_COUNT;
-    rxRuntimeState->rxRefreshRate = 5500;
-
     rxRuntimeState->rcReadRawFn = jetiExBusReadRawRC;
     rxRuntimeState->rcFrameStatusFn = jetiExBusFrameStatus;
-    rxRuntimeState->rcFrameTimeUsFn = jetiExBusFrameTimeUsFn;
 
     jetiExBusFrameReset();
 

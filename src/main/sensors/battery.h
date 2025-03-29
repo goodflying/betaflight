@@ -32,6 +32,8 @@
 
 #define VBAT_CELL_VOTAGE_RANGE_MIN 100
 #define VBAT_CELL_VOTAGE_RANGE_MAX 500
+#define VBAT_CELL_VOLTAGE_DEFAULT_MIN 330
+#define VBAT_CELL_VOLTAGE_DEFAULT_MAX 430
 
 #define MAX_AUTO_DETECT_CELL_COUNT 8
 
@@ -59,7 +61,7 @@ typedef struct batteryConfig_s {
     bool useVBatAlerts;                     // Issue alerts based on VBat readings
     bool useConsumptionAlerts;              // Issue alerts based on total power consumption
     uint8_t consumptionWarningPercentage;   // Percentage of remaining capacity that should trigger a battery warning
-    uint8_t vbathysteresis;                 // hysteresis for alarm, default 1 = 0.1V
+    uint8_t vbathysteresis;                 // hysteresis for alarm in 0.01V units, default 1 = 0.01V
 
     uint16_t vbatfullcellvoltage;           // Cell voltage at which the battery is deemed to be "full" 0.01V units, default is 410 (4.1V)
 
@@ -69,6 +71,10 @@ typedef struct batteryConfig_s {
     uint8_t vbatDurationForWarning;         // Period voltage has to sustain before the battery state is set to BATTERY_WARNING (in 0.1 s)
     uint8_t vbatDurationForCritical;        // Period voltage has to sustain before the battery state is set to BATTERY_CRIT (in 0.1 s)
     uint8_t vbatSagLpfPeriod;               // Period of the cutoff frequency for the Vbat sag and PID compensation filter (in 0.1 s)
+
+#ifdef USE_BATTERY_CONTINUE
+    bool isBatteryContinueEnabled;
+#endif
 } batteryConfig_t;
 
 PG_DECLARE(batteryConfig_t, batteryConfig);
@@ -91,6 +97,8 @@ void batteryInit(void);
 void batteryUpdateVoltage(timeUs_t currentTimeUs);
 void batteryUpdatePresence(void);
 
+bool isVoltageFromBattery(void);
+
 batteryState_e getBatteryState(void);
 batteryState_e getVoltageState(void);
 batteryState_e getConsumptionState(void);
@@ -101,7 +109,6 @@ void batteryUpdateAlarms(void);
 
 struct rxConfig_s;
 
-float calculateVbatPidCompensation(void);
 uint8_t calculateBatteryPercentageRemaining(void);
 bool isBatteryVoltageConfigured(void);
 uint16_t getBatteryVoltage(void);
@@ -115,6 +122,11 @@ bool isAmperageConfigured(void);
 int32_t getAmperage(void);
 int32_t getAmperageLatest(void);
 int32_t getMAhDrawn(void);
+float getWhDrawn(void);
+#ifdef USE_BATTERY_CONTINUE
+bool hasUsedMAh(void);
+void setMAhDrawn(uint32_t mAhDrawn);
+#endif
 
 void batteryUpdateCurrentMeter(timeUs_t currentTimeUs);
 

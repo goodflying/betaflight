@@ -41,6 +41,7 @@
 #include "drivers/rangefinder/rangefinder.h"
 #include "drivers/rangefinder/rangefinder_hcsr04.h"
 #include "drivers/rangefinder/rangefinder_lidartf.h"
+#include "drivers/rangefinder/rangefinder_lidarmt.h"
 #include "drivers/time.h"
 
 #include "fc/runtime_config.h"
@@ -92,6 +93,10 @@ static bool rangefinderDetect(rangefinderDev_t * dev, uint8_t rangefinderHardwar
     rangefinderType_e rangefinderHardware = RANGEFINDER_NONE;
     requestedSensors[SENSOR_INDEX_RANGEFINDER] = rangefinderHardwareToUse;
 
+#if !defined(USE_RANGEFINDER_HCSR04) && !defined(USE_RANGEFINDER_TF)
+    UNUSED(dev);
+#endif
+
     switch (rangefinderHardwareToUse) {
         case RANGEFINDER_HCSR04:
 #ifdef USE_RANGEFINDER_HCSR04
@@ -100,42 +105,6 @@ static bool rangefinderDetect(rangefinderDev_t * dev, uint8_t rangefinderHardwar
                     rangefinderHardware = RANGEFINDER_HCSR04;
                     rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(RANGEFINDER_HCSR04_TASK_PERIOD_MS));
                 }
-            }
-#endif
-            break;
-
-        case RANGEFINDER_SRF10:
-#ifdef USE_RANGEFINDER_SRF10
-            if (srf10Detect(dev)) {
-                rangefinderHardware = RANGEFINDER_SRF10;
-                rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(RANGEFINDER_SRF10_TASK_PERIOD_MS));
-            }
-#endif
-            break;
-
-            case RANGEFINDER_HCSR04I2C:
-#ifdef USE_RANGEFINDER_HCSR04_I2C
-            if (hcsr04i2c0Detect(dev)) {
-                rangefinderHardware = RANGEFINDER_HCSR04I2C;
-                rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(RANGEFINDER_HCSR04_i2C_TASK_PERIOD_MS));
-            }
-#endif
-            break;
-
-            case RANGEFINDER_VL53L0X:
-#if defined(USE_RANGEFINDER_VL53L0X)
-            if (vl53l0xDetect(dev)) {
-                rangefinderHardware = RANGEFINDER_VL53L0X;
-                rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(RANGEFINDER_VL53L0X_TASK_PERIOD_MS));
-            }
-#endif
-            break;
-
-        case RANGEFINDER_UIB:
-#if defined(USE_RANGEFINDER_UIB)
-            if (uibRangefinderDetect(dev)) {
-                rangefinderHardware = RANGEFINDER_UIB;
-                rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(RANGEFINDER_UIB_TASK_PERIOD_MS));
             }
 #endif
             break;
@@ -157,6 +126,18 @@ static bool rangefinderDetect(rangefinderDev_t * dev, uint8_t rangefinderHardwar
             }
 #endif
             break;
+
+#if defined(USE_RANGEFINDER_MT)
+        case RANGEFINDER_MTF01:
+        case RANGEFINDER_MTF02:
+        case RANGEFINDER_MTF01P:
+        case RANGEFINDER_MTF02P:
+            if (mtRangefinderDetect(dev, rangefinderHardwareToUse)) {
+                rangefinderHardware = rangefinderHardwareToUse;
+                rescheduleTask(TASK_RANGEFINDER, TASK_PERIOD_MS(dev->delayMs));
+            }
+            break;
+#endif
 
         case RANGEFINDER_NONE:
             rangefinderHardware = RANGEFINDER_NONE;
@@ -221,7 +202,8 @@ static int32_t applyMedianFilter(int32_t newReading)
     return medianFilterReady ? quickMedianFilter5(filterSamples) : newReading;
 }
 
-static int16_t computePseudoSnr(int32_t newReading) {
+static int16_t computePseudoSnr(int32_t newReading)
+{
     #define SNR_SAMPLES 5
     static int16_t snrSamples[SNR_SAMPLES];
     static uint8_t snrSampleIndex = 0;
@@ -254,19 +236,15 @@ static int16_t computePseudoSnr(int32_t newReading) {
 /*
  * This is called periodically by the scheduler
  */
-// XXX Returns timeDelta_t for iNav for pseudo-RT scheduling.
-void rangefinderUpdate(timeUs_t currentTimeUs)
+void rangefinderUpdate(void)
 {
-    UNUSED(currentTimeUs);
-
     if (rangefinder.dev.update) {
         rangefinder.dev.update(&rangefinder.dev);
     }
-
-    // return rangefinder.dev.delayMs * 1000;  // to microseconds XXX iNav only
 }
 
-bool isSurfaceAltitudeValid() {
+static bool isSurfaceAltitudeValid(void)
+{
 
     /*
      * Preconditions: raw and calculated altidude > 0
@@ -310,8 +288,7 @@ bool rangefinderProcess(float cosTiltAngle)
         if (distance >= 0) {
             rangefinder.lastValidResponseTimeMs = millis();
             rangefinder.rawAltitude = applyMedianFilter(distance);
-        }
-        else if (distance == RANGEFINDER_OUT_OF_RANGE) {
+        } else if (distance == RANGEFINDER_OUT_OF_RANGE) {
             rangefinder.lastValidResponseTimeMs = millis();
             rangefinder.rawAltitude = RANGEFINDER_OUT_OF_RANGE;
         }
@@ -374,7 +351,8 @@ int32_t rangefinderGetLatestAltitude(void)
     return rangefinder.calculatedAltitude;
 }
 
-int32_t rangefinderGetLatestRawAltitude(void) {
+int32_t rangefinderGetLatestRawAltitude(void)
+{
     return rangefinder.rawAltitude;
 }
 

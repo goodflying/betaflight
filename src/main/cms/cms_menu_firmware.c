@@ -22,7 +22,10 @@
 // Firmware related menu contents and support functions
 //
 
+#include <ctype.h>
+
 #include <stdbool.h>
+#include <string.h>
 
 #include "platform.h"
 
@@ -39,14 +42,16 @@
 
 #include "drivers/system.h"
 
+#include "fc/board_info.h"
 #include "fc/runtime_config.h"
+
+#include "pg/board.h"
 
 #include "sensors/acceleration.h"
 #include "sensors/barometer.h"
 #include "sensors/gyro.h"
 
 #include "cms_menu_firmware.h"
-
 
 // Calibration
 
@@ -75,7 +80,7 @@ static const void *cmsx_CalibrationOnDisplayUpdate(displayPort_t *pDisp, const O
     tfp_sprintf(accCalibrationStatus, sensors(SENSOR_ACC) ? accIsCalibrationComplete() ? accHasBeenCalibrated() ? CALIBRATION_STATUS_OK : CALIBRATION_STATUS_NOK : CALIBRATION_STATUS_WAIT: CALIBRATION_STATUS_OFF);
 #endif
 #if defined(USE_BARO)
-    tfp_sprintf(baroCalibrationStatus, sensors(SENSOR_BARO) ? baroIsCalibrationComplete() ? CALIBRATION_STATUS_OK : CALIBRATION_STATUS_WAIT: CALIBRATION_STATUS_OFF);
+    tfp_sprintf(baroCalibrationStatus, sensors(SENSOR_BARO) ? baroIsCalibrated() ? CALIBRATION_STATUS_OK : CALIBRATION_STATUS_WAIT: CALIBRATION_STATUS_OFF);
 #endif
 
     return NULL;
@@ -123,13 +128,13 @@ static const void *cmsCalibrateBaro(displayPort_t *pDisp, const void *self)
 
 #if defined(USE_ACC)
 static const OSD_Entry menuCalibrateAccEntries[] = {
-    { "--- CALIBRATE ACC ---", OME_Label, NULL, NULL, 0 },
-    { "PLACE ON A LEVEL SURFACE", OME_Label, NULL, NULL, 0},
-    { "MAKE SURE CRAFT IS STILL", OME_Label, NULL, NULL, 0},
-    { " ", OME_Label, NULL, NULL, 0},
-    { "START CALIBRATION",  OME_Funcall, cmsCalibrateAcc, NULL, 0 },
-    { "BACK", OME_Back, NULL, NULL, 0 },
-    { NULL, OME_END, NULL, NULL, 0 }
+    { "--- CALIBRATE ACC ---", OME_Label, NULL, NULL },
+    { "PLACE ON A LEVEL SURFACE", OME_Label, NULL, NULL},
+    { "MAKE SURE CRAFT IS STILL", OME_Label, NULL, NULL},
+    { " ", OME_Label, NULL, NULL},
+    { "START CALIBRATION",  OME_Funcall, cmsCalibrateAcc, NULL },
+    { "BACK", OME_Back, NULL, NULL },
+    { NULL, OME_END, NULL, NULL}
 };
 
 CMS_Menu cmsx_menuCalibrateAcc = {
@@ -157,16 +162,16 @@ const void *cmsCalibrateAccMenu(displayPort_t *pDisp, const void *self)
 #endif
 
 static const OSD_Entry menuCalibrationEntries[] = {
-    { "--- CALIBRATE ---", OME_Label, NULL, NULL, 0 },
-    { "GYRO", OME_Funcall, cmsCalibrateGyro, gyroCalibrationStatus, DYNAMIC },
+    { "--- CALIBRATE ---", OME_Label, NULL, NULL },
+    { "GYRO", OME_Funcall | DYNAMIC, cmsCalibrateGyro, gyroCalibrationStatus },
 #if defined(USE_ACC)
-    { "ACC",  OME_Funcall, cmsCalibrateAccMenu, accCalibrationStatus, DYNAMIC },
+    { "ACC",  OME_Funcall | DYNAMIC, cmsCalibrateAccMenu, accCalibrationStatus },
 #endif
 #if defined(USE_BARO)
-    { "BARO", OME_Funcall, cmsCalibrateBaro, baroCalibrationStatus, DYNAMIC },
+    { "BARO", OME_Funcall | DYNAMIC, cmsCalibrateBaro, baroCalibrationStatus },
 #endif
-    { "BACK", OME_Back, NULL, NULL, 0 },
-    { NULL, OME_END, NULL, NULL, 0 }
+    { "BACK", OME_Back, NULL, NULL },
+    { NULL, OME_END, NULL, NULL}
 };
 
 static CMS_Menu cmsx_menuCalibration = {
@@ -182,37 +187,35 @@ static CMS_Menu cmsx_menuCalibration = {
 
 // Info
 
-static char infoGitRev[GIT_SHORT_REVISION_LENGTH + 1];
-static char infoTargetName[] = __TARGET__;
+#if defined(USE_BOARD_INFO)
+static char manufacturerId[MAX_MANUFACTURER_ID_LENGTH + 1];
+static char boardName[MAX_BOARD_NAME_LENGTH + 1];
 
 static const void *cmsx_FirmwareInit(displayPort_t *pDisp)
 {
     UNUSED(pDisp);
 
-    unsigned i;
-    for (i = 0 ; i < GIT_SHORT_REVISION_LENGTH ; i++) {
-        if (shortGitRevision[i] >= 'a' && shortGitRevision[i] <= 'f') {
-            infoGitRev[i] = shortGitRevision[i] - 'a' + 'A';
-        } else {
-            infoGitRev[i] = shortGitRevision[i];
-        }
-    }
-
-    infoGitRev[i] = 0x0; // Terminate string
+    strncpy(manufacturerId, getManufacturerId(), MAX_MANUFACTURER_ID_LENGTH + 1);
+    strncpy(boardName, getBoardName(), MAX_BOARD_NAME_LENGTH + 1);
 
     return NULL;
 }
+#endif
 
 static const OSD_Entry menuFirmwareEntries[] = {
-    { "--- INFO ---", OME_Label, NULL, NULL, 0 },
-    { "FWID", OME_String, NULL, FC_FIRMWARE_IDENTIFIER, 0 },
-    { "FWVER", OME_String, NULL, FC_VERSION_STRING, 0 },
-    { "GITREV", OME_String, NULL, infoGitRev, 0 },
-    { "TARGET", OME_String, NULL, infoTargetName, 0 },
-    { "--- SETUP ---", OME_Label, NULL, NULL, 0 },
-    { "CALIBRATE",     OME_Submenu, cmsMenuChange, &cmsx_menuCalibration, 0},
-    { "BACK", OME_Back, NULL, NULL, 0 },
-    { NULL, OME_END, NULL, NULL, 0 }
+    { "--- INFO ---", OME_Label, NULL, NULL },
+    { "FWID", OME_String, NULL, FC_FIRMWARE_IDENTIFIER },
+    { "FWVER", OME_String, NULL, FC_VERSION_STRING },
+    { "GITREV", OME_String, NULL, __REVISION__ },
+    { "TARGET", OME_String, NULL, __TARGET__ },
+#if defined(USE_BOARD_INFO)
+    { "MFR", OME_String, NULL, manufacturerId },
+    { "BOARD", OME_String, NULL, boardName },
+#endif
+    { "--- SETUP ---", OME_Label, NULL, NULL },
+    { "CALIBRATE",     OME_Submenu, cmsMenuChange, &cmsx_menuCalibration},
+    { "BACK", OME_Back, NULL, NULL },
+    { NULL, OME_END, NULL, NULL}
 };
 
 CMS_Menu cmsx_menuFirmware = {
@@ -220,7 +223,11 @@ CMS_Menu cmsx_menuFirmware = {
     .GUARD_text = "MENUFIRMWARE",
     .GUARD_type = OME_MENU,
 #endif
+#if defined(USE_BOARD_INFO)
     .onEnter = cmsx_FirmwareInit,
+#else
+    .onEnter = NULL,
+#endif
     .onExit = NULL,
     .onDisplayUpdate = NULL,
     .entries = menuFirmwareEntries

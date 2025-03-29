@@ -34,7 +34,6 @@
 #include "config/feature.h"
 #include "drivers/adc.h"
 #include "drivers/io.h"
-#include "drivers/io_def.h"
 #include "drivers/io_types.h"
 #include "drivers/resource.h"
 #include "drivers/rx/rx_cc2500.h"
@@ -87,7 +86,7 @@ static void initBindTuneRx(void);
 static bool tuneRx1(uint8_t *packet);
 static bool tuneRx2(uint8_t *packet);
 static bool tuneRx3(uint8_t *packet);
-static void nextChannel();
+static void nextChannel(void);
 static bool redpineRxPacketBind(uint8_t *packet);
 static bool isRedpineFast(void);
 
@@ -167,7 +166,7 @@ const cc2500RegisterConfigElement_t cc2500RedPineConfig[] =
     { CC2500_3E_PATABLE, 0xFF }
 };
 
-static void initialise()
+static void initialise(void)
 {
     cc2500Reset();
 
@@ -390,7 +389,7 @@ static bool isRedpineFast(void)
     return (redpineFast);
 }
 
-void switchRedpineMode(void)
+static void switchRedpineMode(void)
 {
     redpineFast = !redpineFast;
 }
@@ -400,10 +399,12 @@ void redpineSetRcData(uint16_t *rcData, const uint8_t *packet)
 {
     if (packet[CHANNEL_START] == VTX_STATUS_FRAME && packet[CHANNEL_START + 1] == 0) {
         if (!ARMING_FLAG(ARMED)) {
+#ifdef USE_VTX
             vtxSettingsConfigMutable()->band = packet[5] + 1;
             vtxSettingsConfigMutable()->channel = packet[6];
             vtxSettingsConfigMutable()->power = packet[7];
             saveConfigAndNotify();
+#endif
         }
     } else {
         uint16_t channelValue;

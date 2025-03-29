@@ -41,31 +41,47 @@
 #include "drivers/serial_uart.h"
 #include "drivers/serial_uart_impl.h"
 
-FAST_RAM_ZERO_INIT uartDevice_t uartDevice[UARTDEV_COUNT];      // Only those configured in target.h
-FAST_RAM_ZERO_INIT uartDevice_t *uartDevmap[UARTDEV_COUNT_MAX]; // Full array
-
 void uartPinConfigure(const serialPinConfig_t *pSerialPinConfig)
 {
-    uartDevice_t *uartdev = uartDevice;
-
-    for (size_t hindex = 0; hindex < UARTDEV_COUNT; hindex++) {
-
-        const uartHardware_t *hardware = &uartHardware[hindex];
-        const UARTDevice_e device = hardware->device;
-
-        for (int pindex = 0 ; pindex < UARTHARDWARE_MAX_PINS ; pindex++) {
-            if (hardware->rxPins[pindex].pin == pSerialPinConfig->ioTagRx[device]) {
+    for (const uartHardware_t* hardware = uartHardware; hardware < ARRAYEND(uartHardware); hardware++) {
+        const serialPortIdentifier_e identifier = hardware->identifier;
+        uartDevice_t* uartdev = uartDeviceFromIdentifier(identifier);
+        const int resourceIndex = serialResourceIndex(identifier);
+        if (uartdev == NULL || resourceIndex < 0) {
+            // malformed uartHardware
+            continue;
+        }
+        const ioTag_t cfgRx = pSerialPinConfig->ioTagRx[resourceIndex];
+        const ioTag_t cfgTx = pSerialPinConfig->ioTagTx[resourceIndex];
+#if UART_TRAIT_PINSWAP
+        bool swap = false;
+#endif
+        for (unsigned pindex = 0; pindex < UARTHARDWARE_MAX_PINS; pindex++) {
+            if (cfgRx && cfgRx == hardware->rxPins[pindex].pin) {
                 uartdev->rx = hardware->rxPins[pindex];
             }
 
-            if (hardware->txPins[pindex].pin == pSerialPinConfig->ioTagTx[device]) {
+            if (cfgTx && cfgTx == hardware->txPins[pindex].pin) {
                 uartdev->tx = hardware->txPins[pindex];
             }
-        }
+#if UART_TRAIT_PINSWAP
+            // Check for swapped pins
+            if (cfgTx && cfgTx == hardware->rxPins[pindex].pin) {
+                uartdev->tx = hardware->rxPins[pindex];
+                swap = true;
+            }
 
-        if (uartdev->rx.pin || uartdev->tx.pin) {
+            if (cfgRx && cfgRx == hardware->txPins[pindex].pin) {
+                uartdev->rx = hardware->txPins[pindex];
+                swap = true;
+            }
+#endif
+        }
+        if (uartdev->rx.pin || uartdev->tx.pin ) {
             uartdev->hardware = hardware;
-            uartDevmap[device] = uartdev++;
+#if UART_TRAIT_PINSWAP
+            uartdev->pinSwap = swap;
+#endif
         }
     }
 }

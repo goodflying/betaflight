@@ -28,6 +28,8 @@
 #include "drivers/display.h"
 #include "drivers/display_ug2864hsweg01.h"
 
+#include "displayport_oled.h"
+
 static displayPort_t oledDisplayPort;
 
 static int oledGrab(displayPort_t *displayPort)
@@ -42,13 +44,15 @@ static int oledRelease(displayPort_t *displayPort)
     return 0;
 }
 
-static int oledClearScreen(displayPort_t *displayPort)
+static int oledClearScreen(displayPort_t *displayPort, displayClearOption_e options)
 {
+    UNUSED(options);
+
     i2c_OLED_clear_display_quick(displayPort->device);
     return 0;
 }
 
-static int oledDrawScreen(displayPort_t *displayPort)
+static bool oledDrawScreen(displayPort_t *displayPort)
 {
     UNUSED(displayPort);
     return 0;
@@ -95,7 +99,7 @@ static int oledHeartbeat(displayPort_t *displayPort)
     return 0;
 }
 
-static void oledResync(displayPort_t *displayPort)
+static void oledRedraw(displayPort_t *displayPort)
 {
     UNUSED(displayPort);
 }
@@ -116,7 +120,7 @@ static const displayPortVTable_t oledVTable = {
     .writeChar = oledWriteChar,
     .isTransferInProgress = oledIsTransferInProgress,
     .heartbeat = oledHeartbeat,
-    .resync = oledResync,
+    .redraw = oledRedraw,
     .isSynced = oledIsSynced,
     .txBytesFree = oledTxBytesFree,
     .layerSupported = NULL,
@@ -127,7 +131,7 @@ static const displayPortVTable_t oledVTable = {
 displayPort_t *displayPortOledInit(void *device)
 {
     oledDisplayPort.device = device;
-    displayInit(&oledDisplayPort, &oledVTable);
+    displayInit(&oledDisplayPort, &oledVTable, DISPLAYPORT_DEVICE_TYPE_OLED);
     oledDisplayPort.rows = SCREEN_CHARACTER_ROW_COUNT;
     oledDisplayPort.cols = SCREEN_CHARACTER_COLUMN_COUNT;
     return &oledDisplayPort;

@@ -114,16 +114,18 @@ static void frSkyDTelemetryWriteByte(const char data)
 }
 #endif
 
-static void buildTelemetryFrame(uint8_t *packet)
+static void buildTelemetryFrame(const uint8_t *packet)
 {
     uint8_t a1Value;
     switch (rxCc2500SpiConfig()->a1Source) {
     case FRSKY_SPI_A1_SOURCE_EXTADC:
         a1Value = (adcGetChannel(ADC_EXTERNAL1) & 0xff0) >> 4;
         break;
+#if defined(USE_TELEMETRY_FRSKY_HUB)
     case FRSKY_SPI_A1_SOURCE_CONST:
         a1Value = A1_CONST_D & 0xff;
         break;
+#endif
     case FRSKY_SPI_A1_SOURCE_VBAT:
     default:
         a1Value = (getBatteryVoltage() / 5) & 0xff;
@@ -150,7 +152,8 @@ static void buildTelemetryFrame(uint8_t *packet)
 
 #define FRSKY_D_CHANNEL_SCALING (2.0f / 3)
 
-static void decodeChannelPair(uint16_t *channels, const uint8_t *packet, const uint8_t highNibbleOffset) {
+static void decodeChannelPair(uint16_t *channels, const uint8_t *packet, const uint8_t highNibbleOffset)
+{
     channels[0] = FRSKY_D_CHANNEL_SCALING * (uint16_t)((packet[highNibbleOffset] & 0xf) << 8 | packet[0]);
     channels[1] = FRSKY_D_CHANNEL_SCALING * (uint16_t)((packet[highNibbleOffset] & 0xf0) << 4 | packet[1]);
 }
@@ -229,7 +232,8 @@ rx_spi_received_e frSkyDHandlePacket(uint8_t * const packet, uint8_t * const pro
                     timeoutUs = 1;
                     if (packet[0] == 0x11) {
                         if ((packet[1] == rxCc2500SpiConfig()->bindTxId[0]) &&
-                            (packet[2] == rxCc2500SpiConfig()->bindTxId[1])) {
+                            (packet[2] == rxCc2500SpiConfig()->bindTxId[1]) &&
+                            (packet[5] == rxCc2500SpiConfig()->bindTxId[2])) {
                             rxSpiLedOn();
                             nextChannel(1);
                             cc2500setRssiDbm(packet[18]);

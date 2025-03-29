@@ -23,7 +23,7 @@
 
 #include "platform.h"
 
-#if defined(USE_PWM) || defined(USE_PPM)
+#if defined(USE_RX_PWM) || defined(USE_RX_PPM)
 
 #include "build/build_config.h"
 #include "build/debug.h"
@@ -125,11 +125,14 @@ void resetPPMDataReceivedState(void)
 
 #define MIN_CHANNELS_BEFORE_PPM_FRAME_CONSIDERED_VALID 4
 
-#ifdef DEBUG_PPM_ISR
 typedef enum {
     SOURCE_OVERFLOW = 0,
     SOURCE_EDGE = 1
 } eventSource_e;
+
+static void ppmISREvent(eventSource_e source, uint32_t capture);
+
+#ifdef DEBUG_PPM_ISR
 
 typedef struct ppmISREvent_s {
     uint32_t capture;
@@ -139,15 +142,15 @@ typedef struct ppmISREvent_s {
 static ppmISREvent_t ppmEvents[20];
 static uint8_t ppmEventIndex = 0;
 
-void ppmISREvent(eventSource_e source, uint32_t capture)
+static void ppmISREvent(eventSource_e source, uint32_t capture)
 {
-    ppmEventIndex = (ppmEventIndex + 1) % (sizeof(ppmEvents) / sizeof(ppmEvents[0]));
+    ppmEventIndex = (ppmEventIndex + 1) % ARRAYLEN(ppmEvents);
 
     ppmEvents[ppmEventIndex].source = source;
     ppmEvents[ppmEventIndex].capture = capture;
 }
 #else
-void ppmISREvent(eventSource_e source, uint32_t capture) {}
+static void ppmISREvent(eventSource_e source, uint32_t capture) {}
 #endif
 
 static void ppmResetDevice(void)
@@ -208,7 +211,6 @@ static void ppmEdgeCallback(timerCCHandlerRec_t* cbRec, captureCompare_t capture
     }
 
     ppmDev.overflowed = false;
-
 
     /* Store the current measurement */
     ppmDev.currentTime = currentTime;
@@ -386,11 +388,7 @@ void pwmRxInit(const pwmConfig_t *pwmConfig)
 
         IO_t io = IOGetByTag(pwmConfig->ioTags[channel]);
         IOInit(io, OWNER_PWMINPUT, RESOURCE_INDEX(channel));
-#ifdef STM32F1
-        IOConfigGPIO(io, IOCFG_IPD);
-#else
         IOConfigGPIOAF(io, IOCFG_AF_PP, timer->alternateFunction);
-#endif
         timerConfigure(timer, (uint16_t)PWM_TIMER_PERIOD, PWM_TIMER_1MHZ);
         timerChCCHandlerInit(&port->edgeCb, pwmEdgeCallback);
         timerChOvrHandlerInit(&port->overflowCb, pwmOverflowCallback);
@@ -408,7 +406,7 @@ void pwmRxInit(const pwmConfig_t *pwmConfig)
 #define FIRST_PWM_PORT 0
 
 #ifdef USE_PWM_OUTPUT
-void ppmAvoidPWMTimerClash(TIM_TypeDef *pwmTimer)
+static void ppmAvoidPWMTimerClash(TIM_TypeDef *pwmTimer)
 {
     pwmOutputPort_t *motors = pwmGetMotors();
     for (int motorIndex = 0; motorIndex < MAX_SUPPORTED_MOTORS; motorIndex++) {
@@ -443,11 +441,7 @@ void ppmRxInit(const ppmConfig_t *ppmConfig)
 
     IO_t io = IOGetByTag(ppmConfig->ioTag);
     IOInit(io, OWNER_PPMINPUT, 0);
-#ifdef STM32F1
-    IOConfigGPIO(io, IOCFG_IPD);
-#else
     IOConfigGPIOAF(io, IOCFG_AF_PP, timer->alternateFunction);
-#endif
 
     timerConfigure(timer, (uint16_t)PPM_TIMER_PERIOD, PWM_TIMER_1MHZ);
     timerChCCHandlerInit(&port->edgeCb, ppmEdgeCallback);

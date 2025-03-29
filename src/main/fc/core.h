@@ -55,6 +55,7 @@ typedef enum {
     DISARM_REASON_RUNAWAY_TAKEOFF   = 6,
     DISARM_REASON_GPS_RESCUE        = 7,
     DISARM_REASON_SERIAL_COMMAND    = 8,
+    DISARM_REASON_LANDING           = 9,
 #ifdef UNIT_TEST
     DISARM_REASON_SYSTEM            = 255,
 #endif
@@ -76,6 +77,7 @@ void disarm(flightLogDisarmReason_e reason);
 void tryArm(void);
 
 bool processRx(timeUs_t currentTimeUs);
+void processRxModes(timeUs_t currentTimeUs);
 void updateArmingStatus(void);
 
 void taskGyroSample(timeUs_t currentTimeUs);
@@ -84,15 +86,15 @@ bool pidLoopReady(void);
 void taskFiltering(timeUs_t currentTimeUs);
 void taskMainPidLoop(timeUs_t currentTimeUs);
 
-bool isFlipOverAfterCrashActive(void);
+bool isCrashFlipModeActive(void);
 int8_t calculateThrottlePercent(void);
 uint8_t calculateThrottlePercentAbs(void);
 bool areSticksActive(uint8_t stickPercentLimit);
 void runawayTakeoffTemporaryDisable(uint8_t disableFlag);
-bool isAirmodeActivated();
+bool wasThrottleRaised(void);
 timeUs_t getLastDisarmTimeUs(void);
-bool isTryingToArm();
-void resetTryingToArm();
+bool isTryingToArm(void);
+void resetTryingToArm(void);
 
 void subTaskTelemetryPollSensors(timeUs_t currentTimeUs);
 

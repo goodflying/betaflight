@@ -109,7 +109,6 @@ typedef enum
     SD_SDMMC_UNKNOWN_FUNCTION          = (33),
     SD_OUT_OF_BOUND                    = (34),
 
-
     // Standard error defines
     SD_INTERNAL_ERROR                  = (35),
     SD_NOT_CONFIGURED                  = (36),
@@ -122,7 +121,6 @@ typedef enum
     SD_BUSY                            = (43),
     SD_OK                              = (0)
 } SD_Error_t;
-
 
 typedef struct
 {
@@ -219,8 +217,8 @@ typedef struct
 extern           SD_CardInfo_t               SD_CardInfo;
 extern           SD_CardType_t               SD_CardType;
 
-void             SD_Initialize_LL            (DMA_Stream_TypeDef *dma);
-bool             SD_Init                     (void);
+bool             SD_Initialize_LL            (DMA_Stream_TypeDef *dma);
+SD_Error_t       SD_Init                     (void);
 bool             SD_IsDetected				(void);
 bool             SD_GetState                 (void);
 SD_Error_t       SD_GetCardInfo              (void);

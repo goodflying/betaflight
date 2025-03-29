@@ -34,6 +34,7 @@
 #include "common/maths.h"
 #include "common/axis.h"
 #include "common/color.h"
+#include "common/utils.h"
 
 #include "config/feature.h"
 #include "pg/pg.h"
@@ -58,7 +59,6 @@
 #include "io/gimbal.h"
 #include "io/gps.h"
 #include "io/ledstrip.h"
-#include "io/motors.h"
 
 #include "rx/rx.h"
 
@@ -100,7 +100,7 @@ static const uint8_t mavRates[] = {
     [MAV_DATA_STREAM_EXTRA2] = 10 //2Hz
 };
 
-#define MAXSTREAMS (sizeof(mavRates) / sizeof(mavRates[0]))
+#define MAXSTREAMS ARRAYLEN(mavRates)
 
 static uint8_t mavTicks[MAXSTREAMS];
 static mavlink_message_t mavMsg;
@@ -129,7 +129,6 @@ static int mavlinkStreamTrigger(enum MAV_DATA_STREAM streamNum)
     return 0;
 }
 
-
 static void mavlinkSerialWrite(uint8_t * buf, uint16_t length)
 {
     for (int i = 0; i < length; i++)
@@ -145,7 +144,6 @@ static int16_t headingOrScaledMilliAmpereHoursDrawn(void)
     // heading Current heading in degrees, in compass units (0..360, 0=north)
     return DECIDEGREES_TO_DEGREES(attitude.values.yaw);
 }
-
 
 void freeMAVLinkTelemetryPort(void)
 {
@@ -202,7 +200,7 @@ void checkMAVLinkTelemetryState(void)
     }
 }
 
-void mavlinkSendSystemStatus(void)
+static void mavlinkSendSystemStatus(void)
 {
     uint16_t msgLength;
 
@@ -267,7 +265,7 @@ void mavlinkSendSystemStatus(void)
     mavlinkSerialWrite(mavBuffer, msgLength);
 }
 
-void mavlinkSendRCChannelsAndRSSI(void)
+static void mavlinkSendRCChannelsAndRSSI(void)
 {
     uint16_t msgLength;
     mavlink_msg_rc_channels_raw_pack(0, 200, &mavMsg,
@@ -291,14 +289,14 @@ void mavlinkSendRCChannelsAndRSSI(void)
         (rxRuntimeState.channelCount >= 7) ? rcData[6] : 0,
         // chan8_raw RC channel 8 value, in microseconds
         (rxRuntimeState.channelCount >= 8) ? rcData[7] : 0,
-        // rssi Receive signal strength indicator, 0: 0%, 255: 100%
-        constrain(scaleRange(getRssi(), 0, RSSI_MAX_VALUE, 0, 255), 0, 255));
+        // rssi Receive signal strength indicator, 0: 0%, 254: 100%
+        scaleRange(getRssi(), 0, RSSI_MAX_VALUE, 0, 254));
     msgLength = mavlink_msg_to_send_buffer(mavBuffer, &mavMsg);
     mavlinkSerialWrite(mavBuffer, msgLength);
 }
 
 #if defined(USE_GPS)
-void mavlinkSendPosition(void)
+static void mavlinkSendPosition(void)
 {
     uint16_t msgLength;
     uint8_t gpsFixType = 0;
@@ -310,7 +308,7 @@ void mavlinkSendPosition(void)
         gpsFixType = 1;
     }
     else {
-        if (gpsSol.numSat < 5) {
+        if (gpsSol.numSat < GPS_MIN_SAT_COUNT) {
             gpsFixType = 2;
         }
         else {
@@ -353,11 +351,7 @@ void mavlinkSendPosition(void)
         // alt Altitude in 1E3 meters (millimeters) above MSL
         gpsSol.llh.altCm * 10,
         // relative_alt Altitude above ground in meters, expressed as * 1000 (millimeters)
-#if defined(USE_BARO) || defined(USE_RANGEFINDER)
-        (sensors(SENSOR_RANGEFINDER) || sensors(SENSOR_BARO)) ? getEstimatedAltitudeCm() * 10 : gpsSol.llh.altCm * 10,
-#else
-        gpsSol.llh.altCm * 10,
-#endif
+        getEstimatedAltitudeCm() * 10,
         // Ground X Speed (Latitude), expressed as m/s * 100
         0,
         // Ground Y Speed (Longitude), expressed as m/s * 100
@@ -372,9 +366,9 @@ void mavlinkSendPosition(void)
 
     mavlink_msg_gps_global_origin_pack(0, 200, &mavMsg,
         // latitude Latitude (WGS84), expressed as * 1E7
-        GPS_home[LAT],
+        GPS_home_llh.lat,
         // longitude Longitude (WGS84), expressed as * 1E7
-        GPS_home[LON],
+        GPS_home_llh.lon,
         // altitude Altitude(WGS84), expressed as * 1000
         0);
     msgLength = mavlink_msg_to_send_buffer(mavBuffer, &mavMsg);
@@ -382,7 +376,7 @@ void mavlinkSendPosition(void)
 }
 #endif
 
-void mavlinkSendAttitude(void)
+static void mavlinkSendAttitude(void)
 {
     uint16_t msgLength;
     mavlink_msg_attitude_pack(0, 200, &mavMsg,
@@ -404,7 +398,7 @@ void mavlinkSendAttitude(void)
     mavlinkSerialWrite(mavBuffer, msgLength);
 }
 
-void mavlinkSendHUDAndHeartbeat(void)
+static void mavlinkSendHUDAndHeartbeat(void)
 {
     uint16_t msgLength;
     float mavAltitude = 0;
@@ -419,24 +413,7 @@ void mavlinkSendHUDAndHeartbeat(void)
     }
 #endif
 
-    // select best source for altitude
-#if defined(USE_BARO) || defined(USE_RANGEFINDER)
-    if (sensors(SENSOR_RANGEFINDER) || sensors(SENSOR_BARO)) {
-        // Baro or sonar generally is a better estimate of altitude than GPS MSL altitude
-        mavAltitude = getEstimatedAltitudeCm() / 100.0;
-    }
-#if defined(USE_GPS)
-    else if (sensors(SENSOR_GPS)) {
-        // No sonar or baro, just display altitude above MLS
-        mavAltitude = gpsSol.llh.altCm / 100.0;
-    }
-#endif
-#elif defined(USE_GPS)
-    if (sensors(SENSOR_GPS)) {
-        // No sonar or baro, just display altitude above MLS
-        mavAltitude = gpsSol.llh.altCm / 100.0;
-    }
-#endif
+    mavAltitude = getEstimatedAltitudeCm() / 100.0;
 
     mavlink_msg_vfr_hud_pack(0, 200, &mavMsg,
         // airspeed Current airspeed in m/s
@@ -453,7 +430,6 @@ void mavlinkSendHUDAndHeartbeat(void)
         mavClimbRate);
     msgLength = mavlink_msg_to_send_buffer(mavBuffer, &mavMsg);
     mavlinkSerialWrite(mavBuffer, msgLength);
-
 
     uint8_t mavModes = MAV_MODE_FLAG_MANUAL_INPUT_ENABLED;
     if (ARMING_FLAG(ARMED))
@@ -477,6 +453,7 @@ void mavlinkSendHUDAndHeartbeat(void)
             mavSystemType = MAV_TYPE_HEXAROTOR;
             break;
         case MIXER_OCTOX8:
+        case MIXER_OCTOX8P:
         case MIXER_OCTOFLATP:
         case MIXER_OCTOFLATX:
             mavSystemType = MAV_TYPE_OCTOROTOR;
@@ -498,7 +475,7 @@ void mavlinkSendHUDAndHeartbeat(void)
     // Custom mode for compatibility with APM OSDs
     uint8_t mavCustomMode = 1;  // Acro by default
 
-    if (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(HORIZON_MODE)) {
+    if (FLIGHT_MODE(ANGLE_MODE | HORIZON_MODE | ALT_HOLD_MODE | POS_HOLD_MODE)) {
         mavCustomMode = 0;      //Stabilize
         mavModes |= MAV_MODE_FLAG_STABILIZE_ENABLED;
     }
@@ -531,7 +508,7 @@ void mavlinkSendHUDAndHeartbeat(void)
     mavlinkSerialWrite(mavBuffer, msgLength);
 }
 
-void processMAVLinkTelemetry(void)
+static void processMAVLinkTelemetry(void)
 {
     // is executed @ TELEMETRY_MAVLINK_MAXRATE rate
     if (mavlinkStreamTrigger(MAV_DATA_STREAM_EXTENDED_STATUS)) {

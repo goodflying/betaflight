@@ -36,6 +36,7 @@
 #include "config/config_eeprom.h"
 #include "config/feature.h"
 
+#include "drivers/dshot.h"
 #include "drivers/dshot_command.h"
 #include "drivers/motor.h"
 #include "drivers/system.h"
@@ -51,20 +52,26 @@
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/pid.h"
+#include "flight/pid_init.h"
 #include "flight/rpm_filter.h"
 #include "flight/servos.h"
+#include "flight/position.h"
 
 #include "io/beeper.h"
+#include "io/displayport_msp.h"
 #include "io/gps.h"
 #include "io/ledstrip.h"
 #include "io/serial.h"
 #include "io/vtx.h"
+
+#include "msp/msp_box.h"
 
 #include "osd/osd.h"
 
 #include "pg/adc.h"
 #include "pg/beeper.h"
 #include "pg/beeper_dev.h"
+#include "pg/displayport_profiles.h"
 #include "pg/gyrodev.h"
 #include "pg/motor.h"
 #include "pg/pg.h"
@@ -90,27 +97,15 @@ static bool configIsDirty; /* someone indicated that the config is modified and 
 
 static bool rebootRequired = false;  // set if a config change requires a reboot to take effect
 
+static bool eepromWriteInProgress = false;
+
 pidProfile_t *currentPidProfile;
 
 #ifndef RX_SPI_DEFAULT_PROTOCOL
 #define RX_SPI_DEFAULT_PROTOCOL 0
 #endif
 
-#define DYNAMIC_FILTER_MAX_SUPPORTED_LOOP_TIME HZ_TO_INTERVAL_US(2000)
-
-#define BETAFLIGHT_MAX_SRATE  100
-#define KISS_MAX_SRATE        100
-#define QUICK_MAX_RATE        200
-#define ACTUAL_MAX_RATE       200
-
-PG_REGISTER_WITH_RESET_TEMPLATE(pilotConfig_t, pilotConfig, PG_PILOT_CONFIG, 1);
-
-PG_RESET_TEMPLATE(pilotConfig_t, pilotConfig,
-    .name = { 0 },
-    .displayName = { 0 },
-);
-
-PG_REGISTER_WITH_RESET_TEMPLATE(systemConfig_t, systemConfig, PG_SYSTEM_CONFIG, 2);
+PG_REGISTER_WITH_RESET_TEMPLATE(systemConfig_t, systemConfig, PG_SYSTEM_CONFIG, 3);
 
 PG_RESET_TEMPLATE(systemConfig_t, systemConfig,
     .pidProfileIndex = 0,
@@ -121,11 +116,15 @@ PG_RESET_TEMPLATE(systemConfig_t, systemConfig,
     .cpu_overclock = DEFAULT_CPU_OVERCLOCK,
     .powerOnArmingGraceTime = 5,
     .boardIdentifier = TARGET_BOARD_IDENTIFIER,
-    .hseMhz = SYSTEM_HSE_VALUE,  // Not used for non-F4 targets
-    .configurationState = CONFIGURATION_STATE_DEFAULTS_BARE,
-    .schedulerOptimizeRate = SCHEDULER_OPTIMIZE_RATE_AUTO,
+    .hseMhz = SYSTEM_HSE_MHZ,  // Only used for F4 and G4 targets
+    .configurationState = CONFIGURATION_STATE_UNCONFIGURED,
     .enableStickArming = false,
 );
+
+bool isEepromWriteInProgress(void)
+{
+    return eepromWriteInProgress;
+}
 
 uint8_t getCurrentPidProfileIndex(void)
 {
@@ -142,11 +141,6 @@ uint8_t getCurrentControlRateProfileIndex(void)
     return systemConfig()->activeRateProfile;
 }
 
-uint16_t getCurrentMinthrottle(void)
-{
-    return motorConfig()->minthrottle;
-}
-
 void resetConfig(void)
 {
     pgResetAll();
@@ -158,7 +152,6 @@ void resetConfig(void)
 
 static void activateConfig(void)
 {
-    schedulerOptimizeRate(systemConfig()->schedulerOptimizeRate == SCHEDULER_OPTIMIZE_RATE_ON || (systemConfig()->schedulerOptimizeRate == SCHEDULER_OPTIMIZE_RATE_AUTO && motorConfig()->dev.useDshotTelemetry));
     loadPidProfile();
     loadControlRateProfile();
 
@@ -181,12 +174,26 @@ static void activateConfig(void)
 #if defined(USE_LED_STRIP_STATUS_MODE)
     reevaluateLedConfig();
 #endif
+
+    initActiveBoxIds();
 }
 
 static void adjustFilterLimit(uint16_t *parm, uint16_t resetValue)
 {
-    if (*parm > FILTER_FREQUENCY_MAX) {
+    if (*parm > LPF_MAX_HZ) {
         *parm = resetValue;
+    }
+}
+
+static void validateAndFixRatesSettings(void)
+{
+    for (unsigned profileIndex = 0; profileIndex < CONTROL_RATE_PROFILE_COUNT; profileIndex++) {
+        const ratesType_e ratesType = controlRateProfilesMutable(profileIndex)->rates_type;
+        for (unsigned axis = FD_ROLL; axis <= FD_YAW; axis++) {
+            controlRateProfilesMutable(profileIndex)->rcRates[axis] = constrain(controlRateProfilesMutable(profileIndex)->rcRates[axis], 0, ratesSettingLimits[ratesType].rc_rate_limit);
+            controlRateProfilesMutable(profileIndex)->rates[axis] = constrain(controlRateProfilesMutable(profileIndex)->rates[axis], 0, ratesSettingLimits[ratesType].srate_limit);
+            controlRateProfilesMutable(profileIndex)->rcExpo[axis] = constrain(controlRateProfilesMutable(profileIndex)->rcExpo[axis], 0, ratesSettingLimits[ratesType].expo_limit);
+        }
     }
 }
 
@@ -209,8 +216,8 @@ static void validateAndFixConfig(void)
     }
 #endif
 
-    if (!isSerialConfigValid(serialConfig())) {
-        pgResetFn_serialConfig(serialConfigMutable());
+    if (!isSerialConfigValid(serialConfigMutable())) {
+        PG_RESET(serialConfig);
     }
 
 #if defined(USE_GPS)
@@ -230,9 +237,9 @@ static void validateAndFixConfig(void)
     for (unsigned i = 0; i < PID_PROFILE_COUNT; i++) {
         // Fix filter settings to handle cases where an older configurator was used that
         // allowed higher cutoff limits from previous firmware versions.
-        adjustFilterLimit(&pidProfilesMutable(i)->dterm_lowpass_hz, FILTER_FREQUENCY_MAX);
-        adjustFilterLimit(&pidProfilesMutable(i)->dterm_lowpass2_hz, FILTER_FREQUENCY_MAX);
-        adjustFilterLimit(&pidProfilesMutable(i)->dterm_notch_hz, FILTER_FREQUENCY_MAX);
+        adjustFilterLimit(&pidProfilesMutable(i)->dterm_lpf1_static_hz, LPF_MAX_HZ);
+        adjustFilterLimit(&pidProfilesMutable(i)->dterm_lpf2_static_hz, LPF_MAX_HZ);
+        adjustFilterLimit(&pidProfilesMutable(i)->dterm_notch_hz, LPF_MAX_HZ);
         adjustFilterLimit(&pidProfilesMutable(i)->dterm_notch_cutoff, 0);
 
         // Prevent invalid notch cutoff
@@ -242,8 +249,8 @@ static void validateAndFixConfig(void)
 
 #ifdef USE_DYN_LPF
         //Prevent invalid dynamic lowpass
-        if (pidProfilesMutable(i)->dyn_lpf_dterm_min_hz > pidProfilesMutable(i)->dyn_lpf_dterm_max_hz) {
-            pidProfilesMutable(i)->dyn_lpf_dterm_min_hz = 0;
+        if (pidProfilesMutable(i)->dterm_lpf1_dyn_min_hz > pidProfilesMutable(i)->dterm_lpf1_dyn_max_hz) {
+            pidProfilesMutable(i)->dterm_lpf1_dyn_min_hz = 0;
         }
 #endif
 
@@ -255,10 +262,10 @@ static void validateAndFixConfig(void)
             pidProfilesMutable(i)->auto_profile_cell_count = AUTO_PROFILE_CELL_COUNT_STAY;
         }
 
-        // If the d_min value for any axis is >= the D gain then reset d_min to 0 for consistent Configurator behavior
+        // If the d_max value for any axis is <= the D gain then reset d_max to 0 for consistent Configurator behavior
         for (unsigned axis = 0; axis <= FD_YAW; axis++) {
-            if (pidProfilesMutable(i)->d_min[axis] >= pidProfilesMutable(i)->pid[axis].D) {
-                pidProfilesMutable(i)->d_min[axis] = 0;
+            if (pidProfilesMutable(i)->d_max[axis] < pidProfilesMutable(i)->pid[axis].D) {
+                pidProfilesMutable(i)->d_max[axis] = 0;
             }
         }
 
@@ -269,7 +276,7 @@ static void validateAndFixConfig(void)
 #endif
     }
 
-    if (motorConfig()->dev.motorPwmProtocol == PWM_TYPE_BRUSHED) {
+    if (motorConfig()->dev.motorProtocol == MOTOR_PROTOCOL_BRUSHED) {
         featureDisableImmediate(FEATURE_3D);
 
         if (motorConfig()->mincommand < 1000) {
@@ -277,7 +284,7 @@ static void validateAndFixConfig(void)
         }
     }
 
-    if ((motorConfig()->dev.motorPwmProtocol == PWM_TYPE_STANDARD) && (motorConfig()->dev.motorPwmRate > BRUSHLESS_MOTORS_PWM_RATE)) {
+    if ((motorConfig()->dev.motorProtocol == MOTOR_PROTOCOL_PWM ) && (motorConfig()->dev.motorPwmRate > BRUSHLESS_MOTORS_PWM_RATE)) {
         motorConfigMutable()->dev.motorPwmRate = BRUSHLESS_MOTORS_PWM_RATE;
     }
 
@@ -332,42 +339,14 @@ static void validateAndFixConfig(void)
     } else
 #endif
     if (rxConfigMutable()->rssi_channel
-#if defined(USE_PWM) || defined(USE_PPM)
+#if defined(USE_RX_PWM) || defined(USE_RX_PPM)
         || featureIsConfigured(FEATURE_RX_PPM) || featureIsConfigured(FEATURE_RX_PARALLEL_PWM)
 #endif
         ) {
         rxConfigMutable()->rssi_src_frame_errors = false;
     }
 
-    if (!rcSmoothingIsEnabled() || rxConfig()->rcInterpolationChannels == INTERPOLATION_CHANNELS_T) {
-        for (unsigned i = 0; i < PID_PROFILE_COUNT; i++) {
-            pidProfilesMutable(i)->pid[PID_ROLL].F = 0;
-            pidProfilesMutable(i)->pid[PID_PITCH].F = 0;
-        }
-    }
-
-    if (!rcSmoothingIsEnabled() ||
-        (rxConfig()->rcInterpolationChannels != INTERPOLATION_CHANNELS_RPY &&
-         rxConfig()->rcInterpolationChannels != INTERPOLATION_CHANNELS_RPYT)) {
-
-        for (unsigned i = 0; i < PID_PROFILE_COUNT; i++) {
-            pidProfilesMutable(i)->pid[PID_YAW].F = 0;
-        }
-    }
-
-#if defined(USE_THROTTLE_BOOST)
-    if (!rcSmoothingIsEnabled() ||
-        !(rxConfig()->rcInterpolationChannels == INTERPOLATION_CHANNELS_RPYT
-        || rxConfig()->rcInterpolationChannels == INTERPOLATION_CHANNELS_T
-        || rxConfig()->rcInterpolationChannels == INTERPOLATION_CHANNELS_RPT)) {
-        for (unsigned i = 0; i < PID_PROFILE_COUNT; i++) {
-            pidProfilesMutable(i)->throttle_boost = 0;
-        }
-    }
-#endif
-
-    if (
-        featureIsConfigured(FEATURE_3D) || !featureIsConfigured(FEATURE_GPS)
+    if (featureIsConfigured(FEATURE_3D) || !featureIsConfigured(FEATURE_GPS) || mixerModeIsFixedWing(mixerConfig()->mixerMode)
 #if !defined(USE_GPS) || !defined(USE_GPS_RESCUE)
         || true
 #endif
@@ -401,7 +380,7 @@ static void validateAndFixConfig(void)
     }
 
 #if defined(USE_DSHOT_TELEMETRY) && defined(USE_DSHOT_BITBANG)
-    if (motorConfig()->dev.motorPwmProtocol == PWM_TYPE_PROSHOT1000 && motorConfig()->dev.useDshotTelemetry &&
+    if (motorConfig()->dev.motorProtocol == MOTOR_PROTOCOL_PROSHOT1000 && motorConfig()->dev.useDshotTelemetry &&
         motorConfig()->dev.useDshotBitbang == DSHOT_BITBANG_ON) {
         motorConfigMutable()->dev.useDshotBitbang = DSHOT_BITBANG_AUTO;
     }
@@ -418,77 +397,33 @@ static void validateAndFixConfig(void)
 #endif
 #endif // USE_ADC
 
+    // Bounds check gyro filter selection in case prior build had USE_GYRO_DLPF_EXPERIMENTAL defined
+    if (gyroConfig()->gyro_hardware_lpf >= GYRO_HARDWARE_LPF_COUNT) {
+        gyroConfigMutable()->gyro_hardware_lpf = GYRO_HARDWARE_LPF_NORMAL;
+    }
 
-// clear features that are not supported.
-// I have kept them all here in one place, some could be moved to sections of code above.
+    // clear features that are not supported.
+    featureDisableImmediate(~featuresSupportedByBuild);
 
-#ifndef USE_PPM
-    featureDisableImmediate(FEATURE_RX_PPM);
+    if (systemConfig()->configurationState == CONFIGURATION_STATE_UNCONFIGURED) {
+        // enable some compiled-in features by default
+        uint32_t autoFeatures =
+            FEATURE_OSD | FEATURE_LED_STRIP;
+#if defined(USE_SOFTSERIAL)
+        // enable softserial if at least one pin is configured
+        for (unsigned i = RESOURCE_SOFTSERIAL_OFFSET; i < RESOURCE_SOFTSERIAL_OFFSET + RESOURCE_SOFTSERIAL_COUNT; i++) {
+            if (serialPinConfig()->ioTagTx[i] || serialPinConfig()->ioTagRx[i]) {
+                autoFeatures |= FEATURE_SOFTSERIAL;
+                break;
+            }
+        }
 #endif
-
-#ifndef USE_SERIAL_RX
-    featureDisableImmediate(FEATURE_RX_SERIAL);
-#endif
-
-#if !defined(USE_SOFTSERIAL1) && !defined(USE_SOFTSERIAL2)
-    featureDisableImmediate(FEATURE_SOFTSERIAL);
-#endif
-
-#ifndef USE_RANGEFINDER
-    featureDisableImmediate(FEATURE_RANGEFINDER);
-#endif
-
-#ifndef USE_TELEMETRY
-    featureDisableImmediate(FEATURE_TELEMETRY);
-#endif
-
-#ifndef USE_PWM
-    featureDisableImmediate(FEATURE_RX_PARALLEL_PWM);
-#endif
-
-#ifndef USE_RX_MSP
-    featureDisableImmediate(FEATURE_RX_MSP);
-#endif
-
-#ifndef USE_LED_STRIP
-    featureDisableImmediate(FEATURE_LED_STRIP);
-#endif
-
-#ifndef USE_DASHBOARD
-    featureDisableImmediate(FEATURE_DASHBOARD);
-#endif
-
-#ifndef USE_OSD
-    featureDisableImmediate(FEATURE_OSD);
-#endif
-
-#ifndef USE_SERVOS
-    featureDisableImmediate(FEATURE_SERVO_TILT | FEATURE_CHANNEL_FORWARDING);
-#endif
-
-#ifndef USE_TRANSPONDER
-    featureDisableImmediate(FEATURE_TRANSPONDER);
-#endif
-
-#ifndef USE_RX_SPI
-    featureDisableImmediate(FEATURE_RX_SPI);
-#endif
-
-#ifndef USE_ESC_SENSOR
-    featureDisableImmediate(FEATURE_ESC_SENSOR);
-#endif
-
-#ifndef USE_GYRO_DATA_ANALYSE
-    featureDisableImmediate(FEATURE_DYNAMIC_FILTER);
-#endif
-
-#if !defined(USE_ADC)
-    featureDisableImmediate(FEATURE_RSSI_ADC);
-#endif
+        featureEnableImmediate(autoFeatures & featuresSupportedByBuild);
+    }
 
 #if defined(USE_BEEPER)
 #ifdef USE_TIMER
-    if (beeperDevConfig()->frequency && !timerGetByTag(beeperDevConfig()->ioTag)) {
+    if (beeperDevConfig()->frequency && !timerGetConfiguredByTag(beeperDevConfig()->ioTag)) {
         beeperDevConfigMutable()->frequency = 0;
     }
 #endif
@@ -499,7 +434,7 @@ static void validateAndFixConfig(void)
 
 #ifdef USE_DSHOT
     if (beeperConfig()->dshotBeaconOffFlags & ~DSHOT_BEACON_ALLOWED_MODES) {
-        beeperConfigMutable()->dshotBeaconOffFlags = 0;
+        beeperConfigMutable()->dshotBeaconOffFlags = DEFAULT_DSHOT_BEACON_OFF_FLAGS;
     }
 
     if (beeperConfig()->dshotBeaconTone < DSHOT_CMD_BEACON1
@@ -509,28 +444,29 @@ static void validateAndFixConfig(void)
 #endif
 #endif
 
+    bool configuredMotorProtocolDshot = false;
+    checkMotorProtocolEnabled(&motorConfig()->dev, &configuredMotorProtocolDshot);
 #if defined(USE_DSHOT)
-    bool usingDshotProtocol;
-    switch (motorConfig()->dev.motorPwmProtocol) {
-    case PWM_TYPE_PROSHOT1000:
-    case PWM_TYPE_DSHOT600:
-    case PWM_TYPE_DSHOT300:
-    case PWM_TYPE_DSHOT150:
-        usingDshotProtocol = true;
-        break;
-    default:
-        usingDshotProtocol = false;
-        break;
-    }
-
     // If using DSHOT protocol disable unsynched PWM as it's meaningless
-    if (usingDshotProtocol) {
-        motorConfigMutable()->dev.useUnsyncedPwm = false;
+    if (configuredMotorProtocolDshot) {
+        motorConfigMutable()->dev.useContinuousUpdate = false;
     }
 
-#if defined(USE_DSHOT_TELEMETRY)
-    if ((!usingDshotProtocol || (motorConfig()->dev.useDshotBitbang == DSHOT_BITBANG_OFF && motorConfig()->dev.useBurstDshot == DSHOT_DMAR_ON) || systemConfig()->schedulerOptimizeRate == SCHEDULER_OPTIMIZE_RATE_OFF)
-        && motorConfig()->dev.useDshotTelemetry) {
+#if defined(USE_DSHOT_TELEMETRY) && defined(USE_TIMER)
+    bool nChannelTimerUsed = false;
+    for (unsigned i = 0; i < getMotorCount(); i++) {
+        const ioTag_t tag = motorConfig()->dev.ioTags[i];
+        if (tag) {
+            const timerHardware_t *timer = timerGetConfiguredByTag(tag);
+            if (timer && timer->output & TIMER_OUTPUT_N_CHANNEL) {
+                nChannelTimerUsed = true;
+
+                break;
+            }
+        }
+    }
+
+    if ((!configuredMotorProtocolDshot || (motorConfig()->dev.useDshotBitbang == DSHOT_BITBANG_OFF && (motorConfig()->dev.useBurstDshot == DSHOT_DMAR_ON || nChannelTimerUsed))) && motorConfig()->dev.useDshotTelemetry) {
         motorConfigMutable()->dev.useDshotTelemetry = false;
     }
 #endif // USE_DSHOT_TELEMETRY
@@ -563,48 +499,64 @@ static void validateAndFixConfig(void)
     }
 #endif
 
-#if defined(TARGET_VALIDATECONFIG)
-    targetValidateConfiguration();
-#endif
+    validateAndFixRatesSettings();  // constrain the various rates settings to limits imposed by the rates type
 
-    for (unsigned i = 0; i < CONTROL_RATE_PROFILE_COUNT; i++) {
-        switch (controlRateProfilesMutable(i)->rates_type) {
-        case RATES_TYPE_BETAFLIGHT:
-        default:
-            for (int axis = FD_ROLL; axis <= FD_YAW; axis++) {
-                controlRateProfilesMutable(i)->rates[axis] = constrain(controlRateProfilesMutable(i)->rates[axis], 0, BETAFLIGHT_MAX_SRATE);
-            }
+#if defined(USE_RX_MSP_OVERRIDE)
+    if (!rxConfig()->msp_override_channels_mask) {
+        removeModeActivationCondition(BOXMSPOVERRIDE);
+    }
 
-            break;
-        case RATES_TYPE_KISS:
-            for (int axis = FD_ROLL; axis <= FD_YAW; axis++) {
-                controlRateProfilesMutable(i)->rates[axis] = constrain(controlRateProfilesMutable(i)->rates[axis], 0, KISS_MAX_SRATE);
-            }
-
-            break;
-        case RATES_TYPE_ACTUAL:
-            for (int axis = FD_ROLL; axis <= FD_YAW; axis++) {
-                controlRateProfilesMutable(i)->rates[axis] = constrain(controlRateProfilesMutable(i)->rates[axis], 0, ACTUAL_MAX_RATE);
-            }
-
-            break;
-        case RATES_TYPE_QUICK:
-            for (int axis = FD_ROLL; axis <= FD_YAW; axis++) {
-                controlRateProfilesMutable(i)->rates[axis] = constrain(controlRateProfilesMutable(i)->rates[axis], 0, QUICK_MAX_RATE);
-            }
+    for (int i = 0; i < MAX_MODE_ACTIVATION_CONDITION_COUNT; i++) {
+        const modeActivationCondition_t *mac = modeActivationConditions(i);
+        if (mac->modeId == BOXMSPOVERRIDE && ((1 << (mac->auxChannelIndex + NON_AUX_CHANNEL_COUNT) & (rxConfig()->msp_override_channels_mask)))) {
+            rxConfigMutable()->msp_override_channels_mask &= ~(1 << (mac->auxChannelIndex + NON_AUX_CHANNEL_COUNT));
         }
     }
+#endif
+
+    validateAndfixMotorOutputReordering(motorConfigMutable()->dev.motorOutputReordering, MAX_SUPPORTED_MOTORS);
+
+    // validate that the minimum battery cell voltage is less than the maximum cell voltage
+    // reset to defaults if not
+    if (batteryConfig()->vbatmincellvoltage >=  batteryConfig()->vbatmaxcellvoltage) {
+        batteryConfigMutable()->vbatmincellvoltage = VBAT_CELL_VOLTAGE_DEFAULT_MIN;
+        batteryConfigMutable()->vbatmaxcellvoltage = VBAT_CELL_VOLTAGE_DEFAULT_MAX;
+    }
+
+#ifdef USE_MSP_DISPLAYPORT
+    // Find the first serial port on which MSP Displayport is enabled
+    displayPortMspSetSerial(SERIAL_PORT_NONE);
+
+    for (const serialPortConfig_t *portConfig = serialConfig()->portConfigs;
+         portConfig < ARRAYEND(serialConfig()->portConfigs);
+         portConfig++) {
+        if ((portConfig->identifier != SERIAL_PORT_USB_VCP)
+            && ((portConfig->functionMask & (FUNCTION_VTX_MSP | FUNCTION_MSP)) == (FUNCTION_VTX_MSP | FUNCTION_MSP))) {
+            displayPortMspSetSerial(portConfig->identifier);
+            break;
+        }
+    }
+#endif
+
+#ifdef USE_BLACKBOX
+    validateAndFixBlackBox();
+#endif // USE_BLACKBOX
+
+#if defined(TARGET_VALIDATECONFIG)
+    // This should be done at the end of the validation
+    targetValidateConfiguration();
+#endif
 }
 
 void validateAndFixGyroConfig(void)
 {
     // Fix gyro filter settings to handle cases where an older configurator was used that
     // allowed higher cutoff limits from previous firmware versions.
-    adjustFilterLimit(&gyroConfigMutable()->gyro_lowpass_hz, FILTER_FREQUENCY_MAX);
-    adjustFilterLimit(&gyroConfigMutable()->gyro_lowpass2_hz, FILTER_FREQUENCY_MAX);
-    adjustFilterLimit(&gyroConfigMutable()->gyro_soft_notch_hz_1, FILTER_FREQUENCY_MAX);
+    adjustFilterLimit(&gyroConfigMutable()->gyro_lpf1_static_hz, LPF_MAX_HZ);
+    adjustFilterLimit(&gyroConfigMutable()->gyro_lpf2_static_hz, LPF_MAX_HZ);
+    adjustFilterLimit(&gyroConfigMutable()->gyro_soft_notch_hz_1, LPF_MAX_HZ);
     adjustFilterLimit(&gyroConfigMutable()->gyro_soft_notch_cutoff_1, 0);
-    adjustFilterLimit(&gyroConfigMutable()->gyro_soft_notch_hz_2, FILTER_FREQUENCY_MAX);
+    adjustFilterLimit(&gyroConfigMutable()->gyro_soft_notch_hz_2, LPF_MAX_HZ);
     adjustFilterLimit(&gyroConfigMutable()->gyro_soft_notch_cutoff_2, 0);
 
     // Prevent invalid notch cutoff
@@ -616,8 +568,8 @@ void validateAndFixGyroConfig(void)
     }
 #ifdef USE_DYN_LPF
     //Prevent invalid dynamic lowpass filter
-    if (gyroConfig()->dyn_lpf_gyro_min_hz > gyroConfig()->dyn_lpf_gyro_max_hz) {
-        gyroConfigMutable()->dyn_lpf_gyro_min_hz = 0;
+    if (gyroConfig()->gyro_lpf1_dyn_min_hz > gyroConfig()->gyro_lpf1_dyn_max_hz) {
+        gyroConfigMutable()->gyro_lpf1_dyn_min_hz = 0;
     }
 #endif
 
@@ -626,21 +578,40 @@ void validateAndFixGyroConfig(void)
 
         // check for looptime restrictions based on motor protocol. Motor times have safety margin
         float motorUpdateRestriction;
-        switch (motorConfig()->dev.motorPwmProtocol) {
-        case PWM_TYPE_STANDARD:
+
+#if defined(USE_DSHOT) && defined(USE_PID_DENOM_CHECK)
+        /* If bidirectional DSHOT is being used on an F4 or G4 then force DSHOT300. The motor update restrictions then applied
+         * will automatically consider the loop time and adjust pid_process_denom appropriately
+         */
+        if (true
+#ifdef USE_PID_DENOM_OVERCLOCK_LEVEL
+        && (systemConfig()->cpu_overclock < USE_PID_DENOM_OVERCLOCK_LEVEL)
+#endif
+        && motorConfig()->dev.useDshotTelemetry
+        ) {
+            if (motorConfig()->dev.motorProtocol == MOTOR_PROTOCOL_DSHOT600) {
+                motorConfigMutable()->dev.motorProtocol = MOTOR_PROTOCOL_DSHOT300;
+            }
+            if (gyro.sampleRateHz > 4000) {
+                pidConfigMutable()->pid_process_denom = MAX(2, pidConfig()->pid_process_denom);
+            }
+        }
+#endif // USE_DSHOT && USE_PID_DENOM_CHECK
+        switch (motorConfig()->dev.motorProtocol) {
+        case MOTOR_PROTOCOL_PWM :
                 motorUpdateRestriction = 1.0f / BRUSHLESS_MOTORS_PWM_RATE;
                 break;
-        case PWM_TYPE_ONESHOT125:
+        case MOTOR_PROTOCOL_ONESHOT125:
                 motorUpdateRestriction = 0.0005f;
                 break;
-        case PWM_TYPE_ONESHOT42:
+        case MOTOR_PROTOCOL_ONESHOT42:
                 motorUpdateRestriction = 0.0001f;
                 break;
 #ifdef USE_DSHOT
-        case PWM_TYPE_DSHOT150:
+        case MOTOR_PROTOCOL_DSHOT150:
                 motorUpdateRestriction = 0.000250f;
                 break;
-        case PWM_TYPE_DSHOT300:
+        case MOTOR_PROTOCOL_DSHOT300:
                 motorUpdateRestriction = 0.0001f;
                 break;
 #endif
@@ -649,9 +620,11 @@ void validateAndFixGyroConfig(void)
             break;
         }
 
-        if (motorConfig()->dev.useUnsyncedPwm) {
+        if (motorConfig()->dev.useContinuousUpdate) {
+            bool configuredMotorProtocolDshot = false;
+            checkMotorProtocolEnabled(&motorConfig()->dev, &configuredMotorProtocolDshot);
             // Prevent overriding the max rate of motors
-            if ((motorConfig()->dev.motorPwmProtocol <= PWM_TYPE_BRUSHED) && (motorConfig()->dev.motorPwmProtocol != PWM_TYPE_STANDARD)) {
+            if (!configuredMotorProtocolDshot && motorConfig()->dev.motorProtocol != MOTOR_PROTOCOL_PWM ) {
                 const uint32_t maxEscRate = lrintf(1.0f / motorUpdateRestriction);
                 motorConfigMutable()->dev.motorPwmRate = MIN(motorConfig()->dev.motorPwmRate, maxEscRate);
             }
@@ -672,15 +645,19 @@ void validateAndFixGyroConfig(void)
         }
     }
 
-#ifdef USE_GYRO_DATA_ANALYSE
-    // Disable dynamic filter if gyro loop is less than 2KHz
-    const uint32_t configuredLooptime = (gyro.sampleRateHz > 0) ? (pidConfig()->pid_process_denom * 1e6 / gyro.sampleRateHz) : 0;
-    if (configuredLooptime > DYNAMIC_FILTER_MAX_SUPPORTED_LOOP_TIME) {
-        featureDisableImmediate(FEATURE_DYNAMIC_FILTER);
+    if (systemConfig()->activeRateProfile >= CONTROL_RATE_PROFILE_COUNT) {
+        systemConfigMutable()->activeRateProfile = 0;
     }
-#endif
+    loadControlRateProfile();
+
+    if (systemConfig()->pidProfileIndex >= PID_PROFILE_COUNT) {
+        systemConfigMutable()->pidProfileIndex = 0;
+    }
+    loadPidProfile();
+}
 
 #ifdef USE_BLACKBOX
+void validateAndFixBlackBox(void) {
 #ifndef USE_FLASHFS
     if (blackboxConfig()->device == BLACKBOX_DEVICE_FLASH) {
         blackboxConfigMutable()->device = BLACKBOX_DEVICE_NONE;
@@ -695,22 +672,12 @@ void validateAndFixGyroConfig(void)
             blackboxConfigMutable()->device = BLACKBOX_DEVICE_NONE;
         }
     }
-#endif // USE_BLACKBOX
-
-    if (systemConfig()->activeRateProfile >= CONTROL_RATE_PROFILE_COUNT) {
-        systemConfigMutable()->activeRateProfile = 0;
-    }
-    loadControlRateProfile();
-
-    if (systemConfig()->pidProfileIndex >= PID_PROFILE_COUNT) {
-        systemConfigMutable()->pidProfileIndex = 0;
-    }
-    loadPidProfile();
 }
+#endif // USE_BLACKBOX
 
 bool readEEPROM(void)
 {
-    suspendRxPwmPpmSignal();
+    suspendRxSignal();
 
     // Sanity check, read flash
     bool success = loadEEPROM();
@@ -721,7 +688,7 @@ bool readEEPROM(void)
 
     activateConfig();
 
-    resumeRxPwmPpmSignal();
+    resumeRxSignal();
 
     return success;
 }
@@ -730,35 +697,27 @@ void writeUnmodifiedConfigToEEPROM(void)
 {
     validateAndFixConfig();
 
-    suspendRxPwmPpmSignal();
-
+    suspendRxSignal();
+    eepromWriteInProgress = true;
     writeConfigToEEPROM();
-
-    resumeRxPwmPpmSignal();
+    eepromWriteInProgress = false;
+    resumeRxSignal();
     configIsDirty = false;
 }
 
 void writeEEPROM(void)
 {
+#ifdef USE_RX_SPI
+    rxSpiStop(); // some rx spi protocols use hardware timer, which needs to be stopped before writing to eeprom
+#endif
     systemConfigMutable()->configurationState = CONFIGURATION_STATE_CONFIGURED;
 
     writeUnmodifiedConfigToEEPROM();
 }
 
-bool resetEEPROM(bool useCustomDefaults)
+bool resetEEPROM(void)
 {
-#if !defined(USE_CUSTOM_DEFAULTS)
-    UNUSED(useCustomDefaults);
-#else
-    if (useCustomDefaults) {
-        if (!resetConfigToCustomDefaults()) {
-            return false;
-        }
-    } else
-#endif
-    {
-        resetConfig();
-    }
+    resetConfig();
 
     writeUnmodifiedConfigToEEPROM();
 
@@ -770,11 +729,14 @@ void ensureEEPROMStructureIsValid(void)
     if (isEEPROMStructureValid()) {
         return;
     }
-    resetEEPROM(false);
+    resetEEPROM();
 }
 
 void saveConfigAndNotify(void)
 {
+    // The write to EEPROM will cause a big delay in the current task, so ignore
+    schedulerIgnoreTaskExecTime();
+
     writeEEPROM();
     readEEPROM();
     beeperConfirmationBeeps(1);
@@ -817,6 +779,9 @@ void changePidProfileFromCellCount(uint8_t cellCount)
 
 void changePidProfile(uint8_t pidProfileIndex)
 {
+    // The config switch will cause a big enough delay in the current task to upset the scheduler
+    schedulerIgnoreTaskExecTime();
+
     if (pidProfileIndex < PID_PROFILE_COUNT) {
         systemConfigMutable()->pidProfileIndex = pidProfileIndex;
         loadPidProfile();

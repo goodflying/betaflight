@@ -139,6 +139,10 @@
 #define SYM_ON_M                    0x9B
 #define SYM_FLY_M                   0x9C
 
+// Lap Timer
+#define SYM_CHECKERED_FLAG          0x24
+#define SYM_PREV_LAP_TIME           0x79
+
 // Speed
 #define SYM_SPEED                   0x70
 #define SYM_KPH                     0x9E
@@ -156,3 +160,8 @@
 #define SYM_STICK_OVERLAY_CENTER      0x0B
 #define SYM_STICK_OVERLAY_VERTICAL    0x16
 #define SYM_STICK_OVERLAY_HORIZONTAL  0x17
+
+// GPS degree/minute/second symbols
+#define SYM_GPS_DEGREE              SYM_STICK_OVERLAY_SPRITE_HIGH  // kind of looks like the degree symbol
+#define SYM_GPS_MINUTE              0x27 // '
+#define SYM_GPS_SECOND              0x22 // "

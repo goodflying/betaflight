@@ -15,35 +15,54 @@
  * along with Cleanflight.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdbool.h>
 #include <stdint.h>
 
 extern "C" {
+
     #include "blackbox/blackbox.h"
+
     #include "build/debug.h"
+
+    #include "common/filter.h"
     #include "common/maths.h"
-    #include "config/feature.h"
-    #include "pg/pg.h"
-    #include "pg/pg_ids.h"
-    #include "pg/rx.h"
+
     #include "config/config.h"
+    #include "config/feature.h"
+
     #include "fc/controlrate_profile.h"
     #include "fc/core.h"
     #include "fc/rc_controls.h"
     #include "fc/rc_modes.h"
     #include "fc/runtime_config.h"
+
     #include "flight/failsafe.h"
+    #include "flight/gps_rescue.h"
     #include "flight/imu.h"
     #include "flight/mixer.h"
     #include "flight/pid.h"
+    #include "flight/position.h"
     #include "flight/servos.h"
+
     #include "io/beeper.h"
     #include "io/gps.h"
+
+    #include "pg/autopilot.h"
+    #include "pg/gps_rescue.h"
+    #include "pg/motor.h"
+    #include "pg/rx.h"
+
+    #include "pg/pg.h"
+    #include "pg/pg_ids.h"
+
     #include "rx/rx.h"
+
     #include "scheduler/scheduler.h"
+
     #include "sensors/acceleration.h"
     #include "sensors/gyro.h"
+
     #include "telemetry/telemetry.h"
-    #include "flight/gps_rescue.h"
 
     PG_REGISTER(accelerometerConfig_t, accelerometerConfig, PG_ACCELEROMETER_CONFIG, 0);
     PG_REGISTER(blackboxConfig_t, blackboxConfig, PG_BLACKBOX_CONFIG, 0);
@@ -55,9 +74,14 @@ extern "C" {
     PG_REGISTER(systemConfig_t, systemConfig, PG_SYSTEM_CONFIG, 0);
     PG_REGISTER(telemetryConfig_t, telemetryConfig, PG_TELEMETRY_CONFIG, 0);
     PG_REGISTER(failsafeConfig_t, failsafeConfig, PG_FAILSAFE_CONFIG, 0);
+    PG_REGISTER(motorConfig_t, motorConfig, PG_MOTOR_CONFIG, 0);
+    PG_REGISTER(imuConfig_t, imuConfig, PG_IMU_CONFIG, 0);
+    PG_REGISTER(gpsConfig_t, gpsConfig, PG_GPS_CONFIG, 0);
+    PG_REGISTER(gpsRescueConfig_t, gpsRescueConfig, PG_GPS_RESCUE, 0);
+    PG_REGISTER(positionConfig_t, positionConfig, PG_POSITION, 0);
+    PG_REGISTER(autopilotConfig_t, autopilotConfig, PG_AUTOPILOT, 0);
 
-    float rcCommand[4];
-    int16_t rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];
+    float rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];
     uint16_t averageSystemLoadPercent = 0;
     uint8_t cliMode = 0;
     uint8_t debugMode = 0;
@@ -70,11 +94,14 @@ extern "C" {
     bool cmsInMenu = false;
     float axisPID_P[3], axisPID_I[3], axisPID_D[3], axisPIDSum[3];
     rxRuntimeState_t rxRuntimeState = {};
-    uint16_t GPS_distanceToHome = 0;
+    uint32_t GPS_distanceToHomeCm = 0;
     int16_t GPS_directionToHome = 0;
     acc_t acc = {};
     bool mockIsUpright = false;
     uint8_t activePidLoopDenom = 1;
+
+    float getGpsDataIntervalSeconds(void) { return 0.1f; }
+    float getGpsDataFrequencyHz(void) { return 10.0f; }
 }
 
 uint32_t simulationFeatureFlags = 0;
@@ -346,7 +373,7 @@ TEST(ArmingPreventionTest, RadioTurnedOnAtAnyTimeArmed)
     // expect
     EXPECT_FALSE(isUsingSticksForArming());
     EXPECT_TRUE(isArmingDisabled());
-    EXPECT_EQ(ARMING_DISABLED_BAD_RX_RECOVERY | ARMING_DISABLED_ARM_SWITCH, getArmingDisableFlags());
+    EXPECT_EQ(ARMING_DISABLED_NOT_DISARMED | ARMING_DISABLED_ARM_SWITCH, getArmingDisableFlags());
 
     // given
     // arm switch turned off by user
@@ -1005,7 +1032,7 @@ TEST(ArmingPreventionTest, Paralyze)
     // expect
     EXPECT_TRUE(IS_RC_MODE_ACTIVE(BOXVTXPITMODE));
     EXPECT_TRUE(IS_RC_MODE_ACTIVE(BOXBEEPERON));
-    
+
     // given
     // try exiting paralyze mode and ensure arming and pit mode are still disabled
     rcData[AUX2] = 1000;
@@ -1025,7 +1052,7 @@ TEST(ArmingPreventionTest, Paralyze)
 extern "C" {
     uint32_t micros(void) { return simulationTime; }
     uint32_t millis(void) { return micros() / 1000; }
-    bool rxIsReceivingSignal(void) { return simulationHaveRx; }
+    bool isRxReceivingSignal(void) { return simulationHaveRx; }
 
     bool featureIsEnabled(uint32_t f) { return simulationFeatureFlags & f; }
     void warningLedFlash(void) {}
@@ -1039,13 +1066,13 @@ extern "C" {
     void saveConfigAndNotify(void) {}
     void blackboxFinish(void) {}
     bool accIsCalibrationComplete(void) { return true; }
-    bool baroIsCalibrationComplete(void) { return true; }
+    bool baroIsCalibrated(void) { return true; }
     bool gyroIsCalibrationComplete(void) { return gyroCalibDone; }
     void gyroStartCalibration(bool) {}
     bool isFirstArmingGyroCalibrationRunning(void) { return false; }
     void pidController(const pidProfile_t *, timeUs_t) {}
     void pidStabilisationState(pidStabilisationState_e) {}
-    void mixTable(timeUs_t , uint8_t) {};
+    void mixTable(timeUs_t) {};
     void writeMotors(void) {};
     void writeServos(void) {};
     bool calculateRxChannelsAndUpdateFailsafe(timeUs_t) { return true; }
@@ -1057,6 +1084,8 @@ extern "C" {
     void failsafeStartMonitoring(void) {}
     void failsafeUpdateState(void) {}
     bool failsafeIsActive(void) { return false; }
+    bool failsafeIsReceivingRxData(void) { return true; }
+    bool rxAreFlightChannelsValid(void) { return false; }
     void pidResetIterm(void) {}
     void updateAdjustmentStates(void) {}
     void processRcAdjustments(controlRateConfig_t *) {}
@@ -1090,8 +1119,7 @@ extern "C" {
     float scaleRangef(float, float, float, float, float) { return 0.0f; }
     bool crashRecoveryModeActive(void) { return false; }
     int32_t getEstimatedAltitudeCm(void) { return 0; }
-    bool gpsIsHealthy() { return false; }
-    bool isAltitudeOffset(void) { return false; }
+    bool gpsIsHealthy(void) { return false; }
     float getCosTiltAngle(void) { return 0.0f; }
     void pidSetItermReset(bool) {}
     void applyAccelerometerTrimsDelta(rollAndPitchTrims_t*) {}
@@ -1101,7 +1129,40 @@ extern "C" {
     bool isUpright(void) { return mockIsUpright; }
     void blackboxLogEvent(FlightLogEvent, union flightLogEventData_u *) {};
     void gyroFiltering(timeUs_t) {};
-    timeDelta_t rxGetFrameDelta(timeDelta_t *) { return 0; }
+    timeDelta_t rxGetFrameDelta() { return 0; }
     void updateRcRefreshRate(timeUs_t) {};
     uint16_t getAverageSystemLoadPercent(void) { return 0; }
+    bool isMotorProtocolEnabled(void) { return true; }
+    void pinioBoxTaskControl(void) {}
+    void schedulerSetNextStateTime(timeDelta_t) {}
+
+    float getAltitudeCm(void) {return 0.0f;}
+    float getAltitudeDerivative(void) {return 0.0f;}
+
+    float sin_approx(float) {return 0.0f;}
+    float cos_approx(float) {return 1.0f;}
+    float atan2_approx(float, float) {return 0.0f;}
+
+    void getRcDeflectionAbs(void) {}
+    uint32_t getCpuPercentageLate(void) { return 0; }
+    bool crashFlipSuccessful(void) { return false; }
+
+    void GPS_distance_cm_bearing(const gpsLocation_t *from, const gpsLocation_t *to, bool dist3d, uint32_t *dist, int32_t *bearing)
+    {
+       UNUSED(from);
+       UNUSED(to);
+       UNUSED(dist3d);
+       UNUSED(dist);
+       UNUSED(bearing);
+    }
+
+void GPS_distance2d(const gpsLocation_t* /*from*/, const gpsLocation_t* /*to*/, vector2_t* /*dest*/) { }
+
+    bool canUseGPSHeading;
+    bool compassIsHealthy;
+
+    bool gpsHasNewData(uint16_t* gpsStamp) {
+         UNUSED(*gpsStamp);
+         return true;
+     }
 }

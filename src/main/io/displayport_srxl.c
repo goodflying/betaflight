@@ -23,18 +23,22 @@
 #include <string.h>
 
 #include "platform.h"
-#if defined (USE_SPEKTRUM_CMS_TELEMETRY) && defined (USE_CMS) && defined(USE_TELEMETRY_SRXL)
+
+#if defined(USE_SPEKTRUM_CMS_TELEMETRY)
+
+#include "cms/cms.h"
 
 #include "common/utils.h"
 
 #include "drivers/display.h"
-#include "cms/cms.h"
 
 #include "telemetry/srxl.h"
 
+#include "displayport_srxl.h"
+
 displayPort_t srxlDisplayPort;
 
-static int srxlDrawScreen(displayPort_t *displayPort)
+static bool srxlDrawScreen(displayPort_t *displayPort)
 {
     UNUSED(displayPort);
     return 0;
@@ -53,7 +57,6 @@ static int srxlWriteChar(displayPort_t *displayPort, uint8_t col, uint8_t row, u
     return (spektrumTmTextGenPutChar(col, row, c));
 }
 
-
 static int srxlWriteString(displayPort_t *displayPort, uint8_t col, uint8_t row, uint8_t attr, const char *s)
 {
     while (*s) {
@@ -62,19 +65,20 @@ static int srxlWriteString(displayPort_t *displayPort, uint8_t col, uint8_t row,
     return 0;
 }
 
-static int srxlClearScreen(displayPort_t *displayPort)
+static int srxlClearScreen(displayPort_t *displayPort, displayClearOption_e options)
 {
+    UNUSED(options);
     for (int row = 0; row < SPEKTRUM_SRXL_TEXTGEN_BUFFER_ROWS; row++) {
         for (int col= 0; col < SPEKTRUM_SRXL_TEXTGEN_BUFFER_COLS; col++) {
-            srxlWriteChar(displayPort, col, row, DISPLAYPORT_ATTR_NONE, ' ');
+            srxlWriteChar(displayPort, col, row, DISPLAYPORT_SEVERITY_NORMAL, ' ');
         }
     }
-    srxlWriteString(displayPort, 1, 0, DISPLAYPORT_ATTR_NONE, "BETAFLIGHT");
+    srxlWriteString(displayPort, 1, 0, DISPLAYPORT_SEVERITY_NORMAL, "BETAFLIGHT");
 
     if (displayPort->grabCount == 0) {
-        srxlWriteString(displayPort, 0, 2, DISPLAYPORT_ATTR_NONE, CMS_STARTUP_HELP_TEXT1);
-        srxlWriteString(displayPort, 2, 3, DISPLAYPORT_ATTR_NONE, CMS_STARTUP_HELP_TEXT2);
-        srxlWriteString(displayPort, 2, 4, DISPLAYPORT_ATTR_NONE, CMS_STARTUP_HELP_TEXT3);
+        srxlWriteString(displayPort, 0, 2, DISPLAYPORT_SEVERITY_NORMAL, CMS_STARTUP_HELP_TEXT1);
+        srxlWriteString(displayPort, 2, 3, DISPLAYPORT_SEVERITY_NORMAL, CMS_STARTUP_HELP_TEXT2);
+        srxlWriteString(displayPort, 2, 4, DISPLAYPORT_SEVERITY_NORMAL, CMS_STARTUP_HELP_TEXT3);
     }
     return 0;
 }
@@ -97,7 +101,7 @@ static int srxlHeartbeat(displayPort_t *displayPort)
     return 0;
 }
 
-static void srxlResync(displayPort_t *displayPort)
+static void srxlRedraw(displayPort_t *displayPort)
 {
     UNUSED(displayPort);
 }
@@ -116,7 +120,7 @@ static int srxlGrab(displayPort_t *displayPort)
 static int srxlRelease(displayPort_t *displayPort)
 {
     int cnt = displayPort->grabCount = 0;
-    srxlClearScreen(displayPort);
+    srxlClearScreen(displayPort, DISPLAY_CLEAR_WAIT);
     return cnt;
 }
 
@@ -130,7 +134,7 @@ static const displayPortVTable_t srxlVTable = {
     .writeChar = srxlWriteChar,
     .isTransferInProgress = srxlIsTransferInProgress,
     .heartbeat = srxlHeartbeat,
-    .resync = srxlResync,
+    .redraw = srxlRedraw,
     .isSynced = srxlIsSynced,
     .txBytesFree = srxlTxBytesFree,
     .layerSupported = NULL,
@@ -138,13 +142,18 @@ static const displayPortVTable_t srxlVTable = {
     .layerCopy = NULL,
 };
 
-displayPort_t *displayPortSrxlInit()
+static displayPort_t *displayPortSrxlInit(void)
 {
     srxlDisplayPort.device = NULL;
-    displayInit(&srxlDisplayPort, &srxlVTable);
+    displayInit(&srxlDisplayPort, &srxlVTable, DISPLAYPORT_DEVICE_TYPE_SRXL);
     srxlDisplayPort.rows = SPEKTRUM_SRXL_TEXTGEN_BUFFER_ROWS;
     srxlDisplayPort.cols = SPEKTRUM_SRXL_TEXTGEN_BUFFER_COLS;
+
     return &srxlDisplayPort;
 }
 
+void srxlDisplayportRegister(void)
+{
+    cmsDisplayPortRegister(displayPortSrxlInit());
+}
 #endif

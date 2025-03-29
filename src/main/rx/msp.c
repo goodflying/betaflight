@@ -32,11 +32,11 @@
 #include "rx/rx.h"
 #include "rx/msp.h"
 
-
 static uint16_t mspFrame[MAX_SUPPORTED_RC_CHANNEL_COUNT];
 static bool rxMspFrameDone = false;
+static bool rxMspOverrideFrameDone = false;
 
-static uint16_t rxMspReadRawRC(const rxRuntimeState_t *rxRuntimeState, uint8_t chan)
+float rxMspReadRawRC(const rxRuntimeState_t *rxRuntimeState, uint8_t chan)
 {
     UNUSED(rxRuntimeState);
     return mspFrame[chan];
@@ -45,7 +45,7 @@ static uint16_t rxMspReadRawRC(const rxRuntimeState_t *rxRuntimeState, uint8_t c
 /*
  * Called from MSP command handler - mspFcProcessCommand
  */
-void rxMspFrameReceive(uint16_t *frame, int channelCount)
+void rxMspFrameReceive(const uint16_t *frame, int channelCount)
 {
     for (int i = 0; i < channelCount; i++) {
         mspFrame[i] = frame[i];
@@ -57,6 +57,7 @@ void rxMspFrameReceive(uint16_t *frame, int channelCount)
     }
 
     rxMspFrameDone = true;
+    rxMspOverrideFrameDone = true;
 }
 
 static uint8_t rxMspFrameStatus(rxRuntimeState_t *rxRuntimeState)
@@ -71,13 +72,23 @@ static uint8_t rxMspFrameStatus(rxRuntimeState_t *rxRuntimeState)
     return RX_FRAME_COMPLETE;
 }
 
+#if defined(USE_RX_MSP_OVERRIDE)
+uint8_t rxMspOverrideFrameStatus(void)
+{
+    if (!rxMspOverrideFrameDone) {
+        return RX_FRAME_PENDING;
+    }
+
+    rxMspOverrideFrameDone = false;
+    return RX_FRAME_COMPLETE;
+}
+#endif
+
 void rxMspInit(const rxConfig_t *rxConfig, rxRuntimeState_t *rxRuntimeState)
 {
     UNUSED(rxConfig);
 
     rxRuntimeState->channelCount = MAX_SUPPORTED_RC_CHANNEL_COUNT;
-    rxRuntimeState->rxRefreshRate = 20000;
-
     rxRuntimeState->rcReadRawFn = rxMspReadRawRC;
     rxRuntimeState->rcFrameStatusFn = rxMspFrameStatus;
 }

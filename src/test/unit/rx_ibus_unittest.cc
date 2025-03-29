@@ -30,22 +30,11 @@ extern "C" {
 #include "telemetry/telemetry.h"
 #include "fc/rc_controls.h"
 #include "fc/rc_modes.h"
-#include "sensors/barometer.h"
 #include "sensors/battery.h"
 }
 
 #include "unittest_macros.h"
 #include "gtest/gtest.h"
-
-
-extern "C" {
-    uint8_t batteryCellCount = 3;
-    float rcCommand[4] = {0, 0, 0, 0};
-    int16_t telemTemperature1 = 0;
-    baro_t baro = { .baroTemperature = 50 };
-    telemetryConfig_t telemetryConfig_System;
-}
-
 
 bool telemetryCheckRxPortShared(const serialPortConfig_t *portConfig)
 {
@@ -73,7 +62,7 @@ uint32_t microsISR(void)
 }
 
 #define SERIAL_BUFFER_SIZE 256
-#define SERIAL_PORT_DUMMY_IDENTIFIER  (serialPortIdentifier_e)0x1234
+#define SERIAL_PORT_DUMMY_IDENTIFIER  (serialPortIdentifier_e)0x12
 
 typedef struct serialPortStub_s {
     uint8_t buffer[SERIAL_BUFFER_SIZE];
@@ -83,8 +72,12 @@ typedef struct serialPortStub_s {
 
 static serialPort_t serialTestInstance;
 static serialPortConfig_t serialTestInstanceConfig = {
+    .functionMask = 0,
     .identifier = SERIAL_PORT_DUMMY_IDENTIFIER,
-    .functionMask = 0
+    .msp_baudrateIndex = 0,
+    .gps_baudrateIndex = 0,
+    .blackbox_baudrateIndex = 0,
+    .telemetry_baudrateIndex = 0,
 };
 
 static serialReceiveCallbackPtr stub_serialRxCallback;
@@ -174,7 +167,8 @@ static bool    stubTelemetryCalled = false;
 static uint8_t stubTelemetryPacket[100];
 static uint8_t stubTelemetryIgnoreRxChars = 0;
 
-uint8_t respondToIbusRequest(uint8_t const * const ibusPacket) {
+uint8_t respondToIbusRequest(uint8_t const * const ibusPacket)
+{
     uint8_t len = ibusPacket[0];
     EXPECT_LT(len, sizeof(stubTelemetryPacket));
     memcpy(stubTelemetryPacket, ibusPacket, len);
@@ -217,7 +211,6 @@ TEST_F(IbusRxInitUnitTest, Test_IbusRxNotEnabled)
     // EXPECT_EQ(NULL, rxRuntimeState.rcFrameStatusFn);
 
     EXPECT_EQ(18, rxRuntimeState.channelCount);
-    EXPECT_EQ(20000, rxRuntimeState.rxRefreshRate);
     EXPECT_FALSE(NULL == rxRuntimeState.rcReadRawFn);
     EXPECT_FALSE(NULL == rxRuntimeState.rcFrameStatusFn);
 }
@@ -232,7 +225,6 @@ TEST_F(IbusRxInitUnitTest, Test_IbusRxEnabled)
     EXPECT_TRUE(ibusInit(&initialRxConfig, &rxRuntimeState));
 
     EXPECT_EQ(18, rxRuntimeState.channelCount);
-    EXPECT_EQ(20000, rxRuntimeState.rxRefreshRate);
     EXPECT_FALSE(NULL == rxRuntimeState.rcReadRawFn);
     EXPECT_FALSE(NULL == rxRuntimeState.rcFrameStatusFn);
 

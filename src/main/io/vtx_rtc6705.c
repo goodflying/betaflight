@@ -40,7 +40,6 @@
 #include "io/vtx.h"
 #include "io/vtx_rtc6705.h"
 
-
 #if (defined(USE_CMS) || defined(USE_VTX_COMMON)) && !defined(USE_VTX_TABLE)
 const char *rtc6705PowerNames[VTX_RTC6705_POWER_COUNT + 1] = {
     "---", "MIN", "MAX"
@@ -245,7 +244,9 @@ static vtxVTable_t rtc6705VTable = {
     .getFrequency = vtxRTC6705GetFreq,
     .getStatus = vtxRTC6705GetStatus,
     .getPowerLevels = vtxRTC6705GetPowerLevels,
+    .serializeCustomDeviceStatus = NULL,
 };
+
 #endif // VTX_COMMON
 
 #endif // VTX_RTC6705

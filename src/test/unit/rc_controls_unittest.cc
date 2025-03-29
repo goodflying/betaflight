@@ -60,7 +60,8 @@ extern "C" {
 #include "unittest_macros.h"
 #include "gtest/gtest.h"
 
-void unsetArmingDisabled(armingDisableFlags_e flag) {
+void unsetArmingDisabled(armingDisableFlags_e flag)
+{
   UNUSED(flag);
 }
 
@@ -202,37 +203,44 @@ static int callCounts[CALL_COUNT_ITEM_COUNT];
 #define CALL_COUNTER(item) (callCounts[item])
 
 extern "C" {
-void beeperConfirmationBeeps(uint8_t) {
+void beeperConfirmationBeeps(uint8_t)
+{
     callCounts[COUNTER_QUEUE_CONFIRMATION_BEEP]++;
 }
 
-void beeper(beeperMode_e mode) {
+void beeper(beeperMode_e mode)
+{
     UNUSED(mode);
 }
 
-void changeControlRateProfile(uint8_t) {
+void changeControlRateProfile(uint8_t)
+{
     callCounts[COUNTER_CHANGE_CONTROL_RATE_PROFILE]++;
 }
 
 }
 
-void resetCallCounters(void) {
+void resetCallCounters(void)
+{
     memset(&callCounts, 0, sizeof(callCounts));
 }
 
 uint32_t fixedMillis;
 
 extern "C" {
-uint32_t millis(void) {
+uint32_t millis(void)
+{
     return fixedMillis;
 }
 
-uint32_t micros(void) {
+uint32_t micros(void)
+{
     return fixedMillis * 1000;
 }
 }
 
-void resetMillis(void) {
+void resetMillis(void)
+{
     fixedMillis = 0;
 }
 
@@ -252,16 +260,17 @@ extern "C" {
 class RcControlsAdjustmentsTest : public ::testing::Test {
 protected:
     controlRateConfig_t controlRateConfig = {
-            .rcRates[FD_ROLL] = 90,
-            .rcRates[FD_PITCH] = 90,
-            .rcExpo[FD_ROLL] = 0,
-            .rcExpo[FD_PITCH] = 0,
-            .thrMid8 = 0,
-            .thrExpo8 = 0,
-            .rates = {0, 0, 0},
-            .dynThrPID = 0,
-            .rcExpo[FD_YAW] = 0,
-            .tpa_breakpoint = 0
+        .thrMid8 = 0,
+        .thrExpo8 = 0,
+        .rates_type = RATES_TYPE_BETAFLIGHT,
+        .rcRates = {[FD_ROLL] = 90, [FD_PITCH] = 90},
+        .rcExpo = {[FD_ROLL] = 0, [FD_PITCH] = 0, [FD_YAW] = 0},
+        .rates = {0, 0, 0},
+        .throttle_limit_type = THROTTLE_LIMIT_TYPE_OFF,
+        .throttle_limit_percent = 100,
+        .rate_limit = {0, 0, 0},
+        .profileName = "default",
+        .quickRatesRcExpo = 0,
     };
 
     channelRange_t fullRange = {
@@ -287,8 +296,6 @@ protected:
         controlRateConfig.rates[0] = 0;
         controlRateConfig.rates[1] = 0;
         controlRateConfig.rates[2] = 0;
-        controlRateConfig.dynThrPID = 0;
-        controlRateConfig.tpa_breakpoint = 0;
 
         PG_RESET(adjustmentRanges);
         adjustmentRangesIndex = 0;
@@ -358,16 +365,17 @@ TEST_F(RcControlsAdjustmentsTest, processRcAdjustmentsWithRcRateFunctionSwitchUp
 {
     // given
     controlRateConfig_t controlRateConfig = {
-            .rcRates[FD_ROLL] = 90,
-            .rcRates[FD_PITCH] = 90,
-            .rcExpo[FD_ROLL] = 0,
-            .rcExpo[FD_PITCH] = 0,
-            .thrMid8 = 0,
-            .thrExpo8 = 0,
-            .rates = {0,0,0},
-            .dynThrPID = 0,
-            .rcExpo[FD_YAW] = 0,
-            .tpa_breakpoint = 0
+        .thrMid8 = 0,
+        .thrExpo8 = 0,
+        .rates_type = RATES_TYPE_BETAFLIGHT,
+        .rcRates = {[FD_ROLL] = 90, [FD_PITCH] = 90},
+        .rcExpo = {[FD_ROLL] = 0, [FD_PITCH] = 0, [FD_YAW] = 0},
+        .rates = {0, 0, 0},
+        .throttle_limit_type = THROTTLE_LIMIT_TYPE_OFF,
+        .throttle_limit_percent = 100,
+        .rate_limit = {0, 0, 0},
+        .profileName = "default",
+        .quickRatesRcExpo = 0,
     };
 
     // and
@@ -543,7 +551,7 @@ TEST_F(RcControlsAdjustmentsTest, processPIDIncreasePidController0)
 {
     // given
     pidProfile_t pidProfile;
-    memset(&pidProfile, 0, sizeof (pidProfile));
+    memset(&pidProfile, 0, sizeof(pidProfile));
     pidProfile.pid[PID_PITCH].P = 0;
     pidProfile.pid[PID_PITCH].I = 10;
     pidProfile.pid[PID_PITCH].D = 20;
@@ -553,9 +561,10 @@ TEST_F(RcControlsAdjustmentsTest, processPIDIncreasePidController0)
     pidProfile.pid[PID_YAW].P = 7;
     pidProfile.pid[PID_YAW].I = 17;
     pidProfile.pid[PID_YAW].D = 27;
+
     // and
     controlRateConfig_t controlRateConfig;
-    memset(&controlRateConfig, 0, sizeof (controlRateConfig));
+    memset(&controlRateConfig, 0, sizeof(controlRateConfig));
 
     const timedAdjustmentState_t *adjustmentState1 = configureStepwiseAdjustment(AUX1 - NON_AUX_CHANNEL_COUNT, ADJUSTMENT_PITCH_ROLL_P_INDEX);
     const timedAdjustmentState_t *adjustmentState2 = configureStepwiseAdjustment(AUX2 - NON_AUX_CHANNEL_COUNT, ADJUSTMENT_PITCH_ROLL_I_INDEX);
@@ -563,7 +572,7 @@ TEST_F(RcControlsAdjustmentsTest, processPIDIncreasePidController0)
     const timedAdjustmentState_t *adjustmentState4 = configureStepwiseAdjustment(AUX1 - NON_AUX_CHANNEL_COUNT, ADJUSTMENT_YAW_P_INDEX);
     const timedAdjustmentState_t *adjustmentState5 = configureStepwiseAdjustment(AUX2 - NON_AUX_CHANNEL_COUNT, ADJUSTMENT_YAW_I_INDEX);
     const timedAdjustmentState_t *adjustmentState6 = configureStepwiseAdjustment(AUX3 - NON_AUX_CHANNEL_COUNT, ADJUSTMENT_YAW_D_INDEX);
-
+ 
     // and
     for (int index = AUX1; index < MAX_SUPPORTED_RC_CHANNEL_COUNT; index++) {
         rcData[index] = PWM_RANGE_MIDDLE;
@@ -625,9 +634,11 @@ void dashboardDisablePageCycling() {}
 void dashboardEnablePageCycling() {}
 
 bool failsafeIsActive() { return false; }
-bool rxIsReceivingSignal() { return true; }
+bool isRxReceivingSignal() { return true; }
+bool failsafeIsReceivingRxData() { return true; }
 
-uint8_t getCurrentControlRateProfileIndex(void) {
+uint8_t getCurrentControlRateProfileIndex(void)
+{
     return 0;
 }
 void GPS_reset_home_position(void) {}
@@ -640,19 +651,24 @@ uint8_t armingFlags = 0;
 uint16_t flightModeFlags = 0;
 int16_t heading;
 uint8_t stateFlags = 0;
-int16_t rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];
+float rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];
 pidProfile_t *currentPidProfile;
 rxRuntimeState_t rxRuntimeState;
 PG_REGISTER(blackboxConfig_t, blackboxConfig, PG_BLACKBOX_CONFIG, 0);
 PG_REGISTER(systemConfig_t, systemConfig, PG_SYSTEM_CONFIG, 2);
 void resetArmingDisabled(void) {}
 timeDelta_t getTaskDeltaTimeUs(taskId_e) { return 20000; }
-armingDisableFlags_e getArmingDisableFlags(void) {
+armingDisableFlags_e getArmingDisableFlags(void)
+{
     return (armingDisableFlags_e) 0;
 }
 bool isTryingToArm(void) { return false; }
 void resetTryingToArm(void) {}
 void setLedProfile(uint8_t profile) { UNUSED(profile); }
 uint8_t getLedProfile(void) { return 0; }
+uint8_t getLedBrightness(void) { return 50; }
+void setLedBrightness(uint8_t brightness) { UNUSED(brightness); }
 void compassStartCalibration(void) {}
+void pinioBoxTaskControl(void) {}
+void schedulerIgnoreTaskExecTime(void) {}
 }

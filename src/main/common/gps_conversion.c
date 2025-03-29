@@ -25,14 +25,15 @@
 
 #include "platform.h"
 
-#ifdef USE_GPS
+#include "gps_conversion.h"
 
+#ifdef USE_GPS
 
 #define DIGIT_TO_VAL(_x)    (_x - '0')
 uint32_t GPS_coord_to_degrees(const char* coordinateString)
 {
     const char *fieldSeparator, *remainingString;
-    uint8_t degress = 0, minutes = 0;
+    uint8_t degrees = 0, minutes = 0;
     uint16_t fractionalMinutes = 0;
     uint8_t digitIndex;
 
@@ -45,9 +46,9 @@ uint32_t GPS_coord_to_degrees(const char* coordinateString)
 
     // convert degrees
     while ((fieldSeparator - remainingString) > 2) {
-        if (degress)
-            degress *= 10;
-        degress += DIGIT_TO_VAL(*remainingString++);
+        if (degrees)
+            degrees *= 10;
+        degrees += DIGIT_TO_VAL(*remainingString++);
     }
     // convert minutes
     while (fieldSeparator > remainingString) {
@@ -66,6 +67,6 @@ uint32_t GPS_coord_to_degrees(const char* coordinateString)
                 fractionalMinutes += *remainingString++ - '0';
         }
     }
-    return degress * 10000000UL + (minutes * 1000000UL + fractionalMinutes * 100UL) / 6;
+    return degrees * 10000000UL + (minutes * 1000000UL + fractionalMinutes * 100UL) / 6;
 }
 #endif

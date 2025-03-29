@@ -22,6 +22,7 @@ extern "C" {
 #include "platform.h"
 #include "common/utils.h"
 #include "pg/pg.h"
+#include "pg/pg_ids.h"
 #include "drivers/serial.h"
 #include "io/serial.h"
 #include "io/gps.h"
@@ -36,6 +37,8 @@ extern "C" {
 #include "sensors/acceleration.h"
 #include "scheduler/scheduler.h"
 #include "fc/tasks.h"
+
+PG_REGISTER(gpsConfig_t, gpsConfig, PG_GPS_CONFIG, 0);
 }
 
 #include "unittest_macros.h"
@@ -58,7 +61,8 @@ extern "C" {
 }
 
 static int16_t gyroTemperature;
-int16_t gyroGetTemperature(void) {
+int16_t gyroGetTemperature(void)
+{
     return gyroTemperature;
 }
 
@@ -70,20 +74,19 @@ uint16_t getVbat(void)
 
 extern "C" {
 static int32_t amperage = 100;
-static int32_t estimatedVario = 0;
+static int16_t estimatedVario = 0;
 static uint8_t batteryRemaining = 0;
-static uint16_t avgCellVoltage = vbat/testBatteryCellCount;
 static throttleStatus_e throttleStatus = THROTTLE_HIGH;
 static uint32_t definedFeatures = 0;
 static uint32_t definedSensors = SENSOR_GYRO | SENSOR_ACC | SENSOR_MAG | SENSOR_SONAR | SENSOR_GPS | SENSOR_GPSMAG;
-
+static uint16_t testBatteryVoltage = 1000;
 
 int32_t getAmperage(void)
 {
     return amperage;
 }
 
-int32_t getEstimatedVario(void)
+int16_t getEstimatedVario(void)
 {
     return estimatedVario;
 }
@@ -95,7 +98,17 @@ uint8_t calculateBatteryPercentageRemaining(void)
 
 uint16_t getBatteryAverageCellVoltage(void)
 {
-    return avgCellVoltage;
+    return testBatteryVoltage / testBatteryCellCount;
+}
+
+uint16_t getBatteryVoltage(void)
+{
+    return testBatteryVoltage;
+}
+
+uint8_t getBatteryCellCount(void)
+{
+    return testBatteryCellCount;
 }
 
 int32_t getMAhDrawn(void)
@@ -117,7 +130,7 @@ bool sensors(sensors_e sensor)
 {
     return (definedSensors & sensor) != 0;
 }
-}
+} /* extern "C" */
 
 #define SERIAL_BUFFER_SIZE 256
 
@@ -127,25 +140,18 @@ typedef struct serialPortStub_s {
     int end = 0;
 } serialPortStub_t;
 
-
-static uint16_t testBatteryVoltage = 1000;
-uint16_t getBatteryVoltage(void)
-{
-    return testBatteryVoltage;
-}
-
-uint8_t getBatteryCellCount(void) {
-    return testBatteryCellCount;
-}
-
 static serialPortStub_t serialWriteStub;
 static serialPortStub_t serialReadStub;
 
-#define SERIAL_PORT_DUMMY_IDENTIFIER  (serialPortIdentifier_e)0x1234
+#define SERIAL_PORT_DUMMY_IDENTIFIER  (serialPortIdentifier_e)0x12
 serialPort_t serialTestInstance;
 serialPortConfig_t serialTestInstanceConfig = {
+    .functionMask = 0,
     .identifier = SERIAL_PORT_DUMMY_IDENTIFIER,
-    .functionMask = 0
+    .msp_baudrateIndex = 5,
+    .gps_baudrateIndex = 5,
+    .blackbox_baudrateIndex = 5,
+    .telemetry_baudrateIndex = 5
 };
 
 static serialPortConfig_t *findSerialPortConfig_stub_retval;
@@ -184,7 +190,8 @@ bool telemetryDetermineEnabledState(portSharing_e portSharing)
 }
 
 
-bool telemetryIsSensorEnabled(sensor_e sensor) {
+bool telemetryIsSensorEnabled(sensor_e sensor)
+{
     UNUSED(sensor);
     return true;
 }
@@ -269,8 +276,8 @@ uint8_t serialRead(serialPort_t *instance)
 
 void serialTestResetBuffers()
 {
-    memset(&serialReadStub, 0, sizeof(serialReadStub));
-    memset(&serialWriteStub, 0, sizeof(serialWriteStub));
+    serialReadStub = { {0} }; 
+    serialWriteStub = { {0} };
 }
 
 void setTestSensors()

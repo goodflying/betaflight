@@ -21,6 +21,7 @@
 #pragma once
 
 #include "common/time.h"
+#include "common/unit.h"
 
 #include "drivers/display.h"
 
@@ -48,13 +49,16 @@ extern const char * const osdTimerSourceNames[OSD_NUM_TIMER_TYPES];
 #define OSD_CAMERA_FRAME_MIN_HEIGHT 2
 #define OSD_CAMERA_FRAME_MAX_HEIGHT 16    // Rows supported by MAX7456 (PAL)
 
+#define OSD_FRAMERATE_MIN_HZ 1
+#define OSD_FRAMERATE_MAX_HZ 60
+#define OSD_FRAMERATE_DEFAULT_HZ 12
+
 #define OSD_PROFILE_BITS_POS 11
 #define OSD_PROFILE_MASK    (((1 << OSD_PROFILE_COUNT) - 1) << OSD_PROFILE_BITS_POS)
-#define OSD_POS_MAX   0x3FF
-#define OSD_POSCFG_MAX   (OSD_PROFILE_MASK | 0x3FF) // For CLI values
+#define OSD_POS_MAX   0x7FF
+#define OSD_POSCFG_MAX UINT16_MAX  // element positions now use all 16 bits
 #define OSD_PROFILE_FLAG(x)  (1 << ((x) - 1 + OSD_PROFILE_BITS_POS))
 #define OSD_PROFILE_1_FLAG  OSD_PROFILE_FLAG(1)
-
 
 #ifdef USE_OSD_PROFILES
 #define VISIBLE(x) osdElementVisible(x)
@@ -64,13 +68,26 @@ extern const char * const osdTimerSourceNames[OSD_NUM_TIMER_TYPES];
 #define VISIBLE_IN_OSD_PROFILE(item, profile) VISIBLE(item)
 #endif
 
-
 // Character coordinate
-#define OSD_POSITION_BITS 5 // 5 bits gives a range 0-31
-#define OSD_POSITION_XY_MASK ((1 << OSD_POSITION_BITS) - 1)
-#define OSD_POS(x,y)  ((x & OSD_POSITION_XY_MASK) | ((y & OSD_POSITION_XY_MASK) << OSD_POSITION_BITS))
-#define OSD_X(x)      (x & OSD_POSITION_XY_MASK)
-#define OSD_Y(x)      ((x >> OSD_POSITION_BITS) & OSD_POSITION_XY_MASK)
+#define OSD_POSITION_BITS       5       // 5 bits gives a range 0-31
+#define OSD_POSITION_BIT_XHD    10      // extra bit used to extend X range in a backward compatible manner for HD displays
+#define OSD_POSITION_XHD_MASK   (1 << OSD_POSITION_BIT_XHD)
+#define OSD_POSITION_XY_MASK    ((1 << OSD_POSITION_BITS) - 1)
+#define OSD_TYPE_MASK           0xC000  // bits 14-15
+#define OSD_POS(x, y)  (((x) & OSD_POSITION_XY_MASK)                    \
+                        | (((x) << (OSD_POSITION_BIT_XHD - OSD_POSITION_BITS)) & OSD_POSITION_XHD_MASK) \
+                        | (((y) & OSD_POSITION_XY_MASK) << OSD_POSITION_BITS)) \
+    /**/
+#define OSD_X(x)      (((x) & OSD_POSITION_XY_MASK) | (((x) & OSD_POSITION_XHD_MASK) >> (OSD_POSITION_BIT_XHD - OSD_POSITION_BITS)))
+#define OSD_Y(x)      (((x) >> OSD_POSITION_BITS) & OSD_POSITION_XY_MASK)
+#define OSD_TYPE(x)   (((x) & OSD_TYPE_MASK) >> 14)
+
+#define OSD_SD_COLS VIDEO_COLUMNS_SD
+#define OSD_SD_ROWS VIDEO_LINES_PAL
+
+// Default HD OSD canvas size to be applied unless the goggles announce otherwise
+#define OSD_HD_COLS 53
+#define OSD_HD_ROWS 20
 
 // Timer configuration
 // Stored as 15[alarm:8][precision:4][source:4]0
@@ -78,6 +95,13 @@ extern const char * const osdTimerSourceNames[OSD_NUM_TIMER_TYPES];
 #define OSD_TIMER_SRC(timer)        (timer & 0x0F)
 #define OSD_TIMER_PRECISION(timer)  ((timer >> 4) & 0x0F)
 #define OSD_TIMER_ALARM(timer)      ((timer >> 8) & 0xFF)
+
+#ifdef USE_MAX7456
+#define OSD_DRAW_FREQ_DENOM 5
+#else
+// MWOSD @ 115200 baud
+#define OSD_DRAW_FREQ_DENOM 10
+#endif
 
 // NB: to ensure backwards compatibility, new enum values must be appended at the end but before the OSD_XXXX_COUNT entry.
 
@@ -135,7 +159,7 @@ typedef enum {
     OSD_FLIGHT_DIST,
     OSD_STICK_OVERLAY_LEFT,
     OSD_STICK_OVERLAY_RIGHT,
-    OSD_DISPLAY_NAME,
+    OSD_PILOT_NAME,
     OSD_ESC_RPM_FREQ,
     OSD_RATE_PROFILE_NAME,
     OSD_PID_PROFILE_NAME,
@@ -144,6 +168,32 @@ typedef enum {
     OSD_RC_CHANNELS,
     OSD_CAMERA_FRAME,
     OSD_EFFICIENCY,
+    OSD_TOTAL_FLIGHTS,
+    OSD_UP_DOWN_REFERENCE,
+    OSD_TX_UPLINK_POWER,
+    OSD_WATT_HOURS_DRAWN,
+    OSD_AUX_VALUE,
+    OSD_READY_MODE,
+    OSD_RSNR_VALUE,
+    OSD_SYS_GOGGLE_VOLTAGE,
+    OSD_SYS_VTX_VOLTAGE,
+    OSD_SYS_BITRATE,
+    OSD_SYS_DELAY,
+    OSD_SYS_DISTANCE,
+    OSD_SYS_LQ,
+    OSD_SYS_GOGGLE_DVR,
+    OSD_SYS_VTX_DVR,
+    OSD_SYS_WARNINGS,
+    OSD_SYS_VTX_TEMP,
+    OSD_SYS_FAN_SPEED,
+    OSD_GPS_LAP_TIME_CURRENT,
+    OSD_GPS_LAP_TIME_PREVIOUS,
+    OSD_GPS_LAP_TIME_BEST3,
+    OSD_DEBUG2,
+    OSD_CUSTOM_MSG0,
+    OSD_CUSTOM_MSG1,
+    OSD_CUSTOM_MSG2,
+    OSD_CUSTOM_MSG3,
     OSD_ITEM_COUNT // MUST BE LAST
 } osd_items_e;
 
@@ -183,16 +233,18 @@ typedef enum {
     OSD_STAT_TOTAL_TIME,
     OSD_STAT_TOTAL_DIST,
     OSD_STAT_MIN_RSSI_DBM,
+    OSD_STAT_WATT_HOURS_DRAWN,
+    OSD_STAT_MIN_RSNR,
+    OSD_STAT_BEST_3_CONSEC_LAPS,
+    OSD_STAT_BEST_LAP,
+    OSD_STAT_FULL_THROTTLE_TIME,
+    OSD_STAT_FULL_THROTTLE_COUNTER,
+    OSD_STAT_AVG_THROTTLE,
     OSD_STAT_COUNT // MUST BE LAST
 } osd_stats_e;
 
 // Make sure the number of stats do not exceed the available 32bit storage
 STATIC_ASSERT(OSD_STAT_COUNT <= 32, osdstats_overflow);
-
-typedef enum {
-    OSD_UNIT_IMPERIAL,
-    OSD_UNIT_METRIC
-} osd_unit_e;
 
 typedef enum {
     OSD_TIMER_1,
@@ -221,7 +273,7 @@ typedef enum {
     OSD_WARNING_BATTERY_WARNING,
     OSD_WARNING_BATTERY_CRITICAL,
     OSD_WARNING_VISUAL_BEEPER,
-    OSD_WARNING_CRASH_FLIP,
+    OSD_WARNING_CRASHFLIP,
     OSD_WARNING_ESC_FAIL,
     OSD_WARNING_CORE_TEMPERATURE,
     OSD_WARNING_RC_SMOOTHING,
@@ -233,6 +285,9 @@ typedef enum {
     OSD_WARNING_LINK_QUALITY,
     OSD_WARNING_RSSI_DBM,
     OSD_WARNING_OVER_CAP,
+    OSD_WARNING_RSNR,
+    OSD_WARNING_LOAD,
+    OSD_WARNING_POSHOLD_FAILED,
     OSD_WARNING_COUNT // MUST BE LAST
 } osdWarningsFlags_e;
 
@@ -247,9 +302,9 @@ typedef enum {
 // Make sure the number of warnings do not exceed the available 32bit storage
 STATIC_ASSERT(OSD_WARNING_COUNT <= 32, osdwarnings_overflow);
 
-#define ESC_RPM_ALARM_OFF -1
-#define ESC_TEMP_ALARM_OFF INT8_MIN
-#define ESC_CURRENT_ALARM_OFF -1
+#define ESC_RPM_ALARM_OFF         -1
+#define ESC_TEMP_ALARM_OFF         0
+#define ESC_CURRENT_ALARM_OFF     -1
 
 #define OSD_GPS_RESCUE_DISABLED_WARNING_DURATION_US 3000000 // 3 seconds
 
@@ -262,7 +317,7 @@ typedef struct osdConfig_s {
     uint16_t alt_alarm;
     uint8_t rssi_alarm;
 
-    osd_unit_e units;
+    uint8_t units;
 
     uint16_t timers[OSD_TIMER_COUNT];
     uint32_t enabledWarnings;
@@ -270,7 +325,7 @@ typedef struct osdConfig_s {
     uint8_t ahMaxPitch;
     uint8_t ahMaxRoll;
     uint32_t enabled_stats;
-    int8_t esc_temp_alarm;
+    uint8_t esc_temp_alarm;
     int16_t esc_rpm_alarm;
     int16_t esc_current_alarm;
     uint8_t core_temp_alarm;
@@ -280,7 +335,8 @@ typedef struct osdConfig_s {
     char profile[OSD_PROFILE_COUNT][OSD_PROFILE_NAME_LENGTH + 1];
     uint16_t link_quality_alarm;
     int16_t rssi_dbm_alarm;
-    uint8_t gps_sats_show_hdop;
+    int16_t rsnr_alarm;
+    uint8_t gps_sats_show_pdop;
     int8_t rcChannels[OSD_RCCHANNELS_COUNT];  // RC channel values to display, -1 if none
     uint8_t displayPortDevice;                // osdDisplayPortDevice_e
     uint16_t distance_alarm;
@@ -288,6 +344,24 @@ typedef struct osdConfig_s {
     uint8_t logo_on_arming_duration;          // display duration in 0.1s units
     uint8_t camera_frame_width;               // The width of the box for the camera frame element
     uint8_t camera_frame_height;              // The height of the box for the camera frame element
+    uint16_t framerate_hz;
+    uint8_t cms_background_type;              // For supporting devices, determines whether the CMS background is transparent or opaque
+    uint8_t stat_show_cell_value;
+#ifdef USE_CRAFTNAME_MSGS
+    uint8_t osd_craftname_msgs;               // Insert LQ/RSSI-dBm and warnings into CraftName
+#endif //USE_CRAFTNAME_MSGS
+    uint8_t aux_channel;
+    uint16_t aux_scale;
+    uint8_t aux_symbol;
+    uint8_t canvas_cols;                      // Canvas dimensions for HD display
+    uint8_t canvas_rows;
+#ifdef USE_OSD_QUICK_MENU
+    uint8_t osd_use_quick_menu;               // use QUICK menu YES/NO
+#endif // USE_OSD_QUICK_MENU
+#ifdef USE_SPEC_PREARM_SCREEN
+    uint8_t osd_show_spec_prearm;
+#endif // USE_SPEC_PREARM_SCREEN
+    displayPortSeverity_e arming_logo;        // font from which to display logo on arming
 } osdConfig_t;
 
 PG_DECLARE(osdConfig_t, osdConfig);
@@ -308,10 +382,12 @@ typedef struct statistic_s {
     int32_t max_altitude;
     int16_t max_distance;
     float max_g_force;
+    int16_t max_esc_temp_ix;
     int16_t max_esc_temp;
     int32_t max_esc_rpm;
     uint16_t min_link_quality;
     int16_t min_rssi_dbm;
+    int16_t min_rsnr;
 } statistic_t;
 
 extern timeUs_t resumeRefreshAt;
@@ -322,21 +398,25 @@ extern float osdGForce;
 #ifdef USE_ESC_SENSOR
 extern escSensorData_t *osdEscDataCombined;
 #endif
+extern uint16_t osdAuxValue;
 
 void osdInit(displayPort_t *osdDisplayPort, osdDisplayPortDevice_e displayPortDevice);
-bool osdInitialized(void);
+bool osdUpdateCheck(timeUs_t currentTimeUs, timeDelta_t currentDeltaTimeUs);
 void osdUpdate(timeUs_t currentTimeUs);
+
 void osdStatSetState(uint8_t statIndex, bool enabled);
 bool osdStatGetState(uint8_t statIndex);
+void osdSuppressStats(bool flag);
+void osdAnalyzeActiveElements(void);
+void changeOsdProfileIndex(uint8_t profileIndex);
+uint8_t getCurrentOsdProfileIndex(void);
+displayPort_t *osdGetDisplayPort(osdDisplayPortDevice_e *displayPortDevice);
+
 void osdWarnSetState(uint8_t warningIndex, bool enabled);
 bool osdWarnGetState(uint8_t warningIndex);
-void osdSuppressStats(bool flag);
-
-void osdAnalyzeActiveElements(void);
-uint8_t getCurrentOsdProfileIndex(void);
-void changeOsdProfileIndex(uint8_t profileIndex);
 bool osdElementVisible(uint16_t value);
 bool osdGetVisualBeeperState(void);
+void osdSetVisualBeeperState(bool state);
 statistic_t *osdGetStats(void);
 bool osdNeedsAccelerometer(void);
-displayPort_t *osdGetDisplayPort(osdDisplayPortDevice_e *displayPortDevice);
+int osdPrintFloat(char *buffer, char leadingSymbol, float value, char *formatString, unsigned decimalPlaces, bool round, char trailingSymbol);

@@ -28,7 +28,6 @@
 #include "drivers/io.h"
 #include "drivers/time.h"
 #include "usb_io.h"
-#include "sdcard.h"
 
 #ifdef USE_USB_DETECT
 static IO_t usbDetectPin;
@@ -68,14 +67,17 @@ bool usbCableIsInserted(void)
 
 void usbGenerateDisconnectPulse(void)
 {
-    /* Pull down PA12 to create USB disconnect pulse */
-    IO_t usbPin = IOGetByTag(IO_TAG(PA12));
+#ifdef USB_DP_PIN
+    /* Pull down USB_DP_PIN to create USB disconnect pulse */
+    IO_t usbPin = IOGetByTag(IO_TAG(USB_DP_PIN));
+    if (!usbPin) {
+        return;
+    }
+
     IOConfigGPIO(usbPin, IOCFG_OUT_OD);
-
     IOLo(usbPin);
-
     delay(200);
-
     IOHi(usbPin);
+#endif
 }
 #endif

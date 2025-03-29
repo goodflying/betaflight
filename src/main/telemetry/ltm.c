@@ -79,7 +79,6 @@
 #include "telemetry/telemetry.h"
 #include "telemetry/ltm.h"
 
-
 #define TELEMETRY_LTM_INITIAL_PORT_MODE MODE_TX
 #define LTM_CYCLETIME   100
 
@@ -137,7 +136,7 @@ static void ltm_gframe(void)
 
     if (!STATE(GPS_FIX))
         gps_fix_type = 1;
-    else if (gpsSol.numSat < 5)
+    else if (gpsSol.numSat < GPS_MIN_SAT_COUNT)
         gps_fix_type = 2;
     else
         gps_fix_type = 3;
@@ -146,12 +145,7 @@ static void ltm_gframe(void)
     ltm_serialise_32(gpsSol.llh.lat);
     ltm_serialise_32(gpsSol.llh.lon);
     ltm_serialise_8((uint8_t)(gpsSol.groundSpeed / 100));
-
-#if defined(USE_BARO) || defined(USE_RANGEFINDER)
-    ltm_alt = (sensors(SENSOR_RANGEFINDER) || sensors(SENSOR_BARO)) ? getEstimatedAltitudeCm() : gpsSol.llh.altCm;
-#else
-    ltm_alt = gpsSol.llh.altCm;
-#endif
+    ltm_alt = getEstimatedAltitudeCm();
     ltm_serialise_32(ltm_alt);
     ltm_serialise_8((gpsSol.numSat << 2) | gps_fix_type);
     ltm_finalise();
@@ -181,6 +175,12 @@ static void ltm_sframe(void)
         lt_flightmode = 2;
     else if (FLIGHT_MODE(HORIZON_MODE))
         lt_flightmode = 3;
+    else if (FLIGHT_MODE(POS_HOLD_MODE))
+        lt_flightmode = 9;
+    else if (FLIGHT_MODE(ALT_HOLD_MODE))
+        lt_flightmode = 8;
+    else if (FLIGHT_MODE(GPS_RESCUE_MODE))
+        lt_flightmode = 13;
     else
         lt_flightmode = 1;      // Rate mode
 
@@ -188,8 +188,8 @@ static void ltm_sframe(void)
     if (failsafeIsActive())
         lt_statemode |= 2;
     ltm_initialise_packet('S');
-    ltm_serialise_16(getBatteryVoltage() * 10);    //vbat converted to mV
-    ltm_serialise_16(0);             //  current, not implemented
+    ltm_serialise_16(getBatteryVoltage() * 10); // vbat converted to mV
+    ltm_serialise_16((uint16_t)constrain(getMAhDrawn(), 0, UINT16_MAX)); // consumption in mAh (65535 mAh max)
     ltm_serialise_8(constrain(scaleRange(getRssi(), 0, RSSI_MAX_VALUE, 0, 255), 0, 255));        // scaled RSSI (uchar)
     ltm_serialise_8(0);              // no airspeed
     ltm_serialise_8((lt_flightmode << 2) | lt_statemode);
@@ -218,8 +218,8 @@ static void ltm_oframe(void)
 {
     ltm_initialise_packet('O');
 #if defined(USE_GPS)
-    ltm_serialise_32(GPS_home[LAT]);
-    ltm_serialise_32(GPS_home[LON]);
+    ltm_serialise_32(GPS_home_llh.lat);
+    ltm_serialise_32(GPS_home_llh.lon);
 #else
     ltm_serialise_32(0);
     ltm_serialise_32(0);

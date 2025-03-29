@@ -59,7 +59,6 @@ static uint32_t sumhChannels[SUMH_MAX_CHANNEL_COUNT];
 
 static serialPort_t *sumhPort;
 
-
 // Receive ISR callback
 static void sumhDataReceive(uint16_t c, void *data)
 {
@@ -108,7 +107,7 @@ static uint8_t sumhFrameStatus(rxRuntimeState_t *rxRuntimeState)
     return RX_FRAME_COMPLETE;
 }
 
-static uint16_t sumhReadRawRC(const rxRuntimeState_t *rxRuntimeState, uint8_t chan)
+static float sumhReadRawRC(const rxRuntimeState_t *rxRuntimeState, uint8_t chan)
 {
     UNUSED(rxRuntimeState);
 
@@ -124,8 +123,6 @@ bool sumhInit(const rxConfig_t *rxConfig, rxRuntimeState_t *rxRuntimeState)
     UNUSED(rxConfig);
 
     rxRuntimeState->channelCount = SUMH_MAX_CHANNEL_COUNT;
-    rxRuntimeState->rxRefreshRate = 11000;
-
     rxRuntimeState->rcReadRawFn = sumhReadRawRC;
     rxRuntimeState->rcFrameStatusFn = sumhFrameStatus;
 

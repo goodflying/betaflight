@@ -29,7 +29,7 @@
 #define ADC_INSTANCE                ADC1
 #endif
 
-#if defined(STM32F4) || defined(STM32F7)
+#if defined(STM32F4) || defined(STM32F7) || defined(APM32F4)
 #ifndef ADC1_DMA_STREAM
 #define ADC1_DMA_STREAM DMA2_Stream4 // ST0 or ST4
 #endif
@@ -46,14 +46,16 @@
 typedef enum ADCDevice {
     ADCINVALID = -1,
     ADCDEV_1   = 0,
-#if defined(STM32F3) || defined(STM32F4) || defined(STM32F7) || defined(STM32H7) || defined(STM32G4)
+#if defined(ADC2)
     ADCDEV_2,
+#endif
+#if defined(ADC3)
     ADCDEV_3,
 #endif
-#if defined(STM32F3) || defined(STM32G4)
+#if defined(ADC4)
     ADCDEV_4,
 #endif
-#if defined(STM32G4)
+#if defined(ADC5)
     ADCDEV_5,
 #endif
     ADCDEV_COUNT
@@ -69,16 +71,25 @@ typedef enum {
     ADC_RSSI = 3,
 #if defined(STM32H7) || defined(STM32G4)
     // On H7 and G4, internal sensors are treated in the similar fashion as regular ADC inputs
-    ADC_CHANNEL_INTERNAL = 4,
+    ADC_CHANNEL_INTERNAL_FIRST_ID = 4,
+
     ADC_TEMPSENSOR = 4,
     ADC_VREFINT = 5,
+    ADC_VBAT4 = 6,
+#elif defined(AT32F435)
+    ADC_CHANNEL_INTERNAL_FIRST_ID = 4,
+
+    ADC_TEMPSENSOR = 4,
+    ADC_VREFINT = 5,
+    // ADC_VBAT4 = 6,
+
 #endif
     ADC_CHANNEL_COUNT
 } AdcChannel;
 
 typedef struct adcOperatingConfig_s {
     ioTag_t tag;
-#if defined(STM32H7) || defined(STM32G4)
+#if defined(STM32H7) || defined(STM32G4) || defined(AT32F435)
     ADCDevice adcDevice;        // ADCDEV_x for this input
     uint32_t adcChannel;        // Channel number for this input. Note that H7 and G4 HAL requires this to be 32-bit encoded number.
 #else
@@ -103,5 +114,5 @@ int16_t adcInternalComputeTemperature(uint16_t tempAdcValue, uint16_t vrefValue)
 #endif
 
 #if !defined(SIMULATOR_BUILD)
-ADCDevice adcDeviceByInstance(ADC_TypeDef *instance);
+ADCDevice adcDeviceByInstance(const ADC_TypeDef *instance);
 #endif

@@ -42,6 +42,9 @@ typedef enum {
     FAILURE_SDCARD_READ_FAILED,
     FAILURE_SDCARD_WRITE_FAILED,
     FAILURE_SDCARD_INITIALISATION_FAILED,
+    FAILURE_SDCARD_REQUIRED,
+    FAILURE_FILE_READ_FAILED,
+    FAILURE_FILE_WRITE_FAILED,
 } failureMode_e;
 
 #define WARNING_FLASH_DURATION_MS 50
@@ -64,14 +67,20 @@ void systemReset(void);
 void systemResetToBootloader(bootloaderRequestType_e requestType);
 bool isMPUSoftReset(void);
 void cycleCounterInit(void);
-uint32_t clockCyclesToMicros(uint32_t clockCycles);
+int32_t clockCyclesToMicros(int32_t clockCycles);
+float clockCyclesToMicrosf(int32_t clockCycles);
+int32_t clockCyclesTo10thMicros(int32_t clockCycles);
+int32_t clockCyclesTo100thMicros(int32_t clockCycles);
+uint32_t clockMicrosToCycles(uint32_t micros);
 uint32_t getCycleCounter(void);
-#if defined(STM32H7) || defined(STM32G4)
-void systemCheckResetReason(void);
-#endif
+void systemProcessResetReason(void);
 
+// memory
+void memoryMappedModeInit(void);
+bool isMemoryMappedModeEnabledOnBoot(void);
 
 void initialiseMemorySections(void);
+void systemResetWithoutDisablingCaches(void);
 
 void enableGPIOPowerUsageAndNoiseReductions(void);
 // current crystal frequency - 8 or 12MHz

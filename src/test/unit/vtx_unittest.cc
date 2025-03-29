@@ -21,25 +21,35 @@ extern "C" {
     #include "blackbox/blackbox.h"
     #include "build/debug.h"
     #include "common/maths.h"
+    #include "common/streambuf.h"
+
     #include "config/feature.h"
-    #include "pg/pg.h"
-    #include "pg/pg_ids.h"
-    #include "pg/rx.h"
     #include "config/config.h"
+
     #include "fc/controlrate_profile.h"
     #include "fc/core.h"
     #include "fc/rc_controls.h"
     #include "fc/rc_modes.h"
     #include "fc/runtime_config.h"
+
     #include "flight/failsafe.h"
     #include "flight/imu.h"
     #include "flight/mixer.h"
     #include "flight/pid.h"
     #include "flight/servos.h"
+    #include "flight/gps_rescue.h"
+
     #include "io/beeper.h"
     #include "io/gps.h"
     #include "io/vtx.h"
+
+    #include "pg/gps_rescue.h"
+    #include "pg/motor.h"
+    #include "pg/pg.h"
+    #include "pg/pg_ids.h"
+    #include "pg/rx.h"
     #include "rx/rx.h"
+
     #include "scheduler/scheduler.h"
     #include "sensors/acceleration.h"
     #include "sensors/gyro.h"
@@ -57,9 +67,12 @@ extern "C" {
     PG_REGISTER(systemConfig_t, systemConfig, PG_SYSTEM_CONFIG, 0);
     PG_REGISTER(telemetryConfig_t, telemetryConfig, PG_TELEMETRY_CONFIG, 0);
     PG_REGISTER(failsafeConfig_t, failsafeConfig, PG_FAILSAFE_CONFIG, 0);
+    PG_REGISTER(motorConfig_t, motorConfig, PG_MOTOR_CONFIG, 0);
+    PG_REGISTER(imuConfig_t, imuConfig, PG_IMU_CONFIG, 0);
+    PG_REGISTER(gpsRescueConfig_t, gpsRescueConfig, PG_GPS_CONFIG, 0);
 
-    float rcCommand[4];
-    int16_t rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];
+    extern float rcCommand[4];
+    float rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];
     uint16_t averageSystemLoadPercent = 0;
     uint8_t cliMode = 0;
     uint8_t debugMode = 0;
@@ -72,6 +85,7 @@ extern "C" {
     bool cmsInMenu = false;
     float axisPID_P[3], axisPID_I[3], axisPID_D[3], axisPIDSum[3];
     rxRuntimeState_t rxRuntimeState = {};
+    acc_t acc;
 }
 
 uint32_t simulationFeatureFlags = 0;
@@ -116,7 +130,7 @@ extern "C" {
     uint8_t activePidLoopDenom = 1;
     uint32_t micros(void) { return simulationTime; }
     uint32_t millis(void) { return micros() / 1000; }
-    bool rxIsReceivingSignal(void) { return simulationHaveRx; }
+    bool isRxReceivingSignal(void) { return simulationHaveRx; }
 
     bool featureIsEnabled(uint32_t f) { return simulationFeatureFlags & f; }
     void warningLedFlash(void) {}
@@ -131,13 +145,13 @@ extern "C" {
     void blackboxFinish(void) {}
     bool accIsCalibrationComplete(void) { return true; }
     bool accHasBeenCalibrated(void) { return true; }
-    bool baroIsCalibrationComplete(void) { return true; }
+    bool baroIsCalibrated(void) { return true; }
     bool gyroIsCalibrationComplete(void) { return gyroCalibDone; }
     void gyroStartCalibration(bool) {}
     bool isFirstArmingGyroCalibrationRunning(void) { return false; }
     void pidController(const pidProfile_t *, timeUs_t) {}
     void pidStabilisationState(pidStabilisationState_e) {}
-    void mixTable(timeUs_t , uint8_t) {};
+    void mixTable(timeUs_t) {};
     void writeMotors(void) {};
     void writeServos(void) {};
     bool calculateRxChannelsAndUpdateFailsafe(timeUs_t) { return true; }
@@ -149,6 +163,8 @@ extern "C" {
     void failsafeStartMonitoring(void) {}
     void failsafeUpdateState(void) {}
     bool failsafeIsActive(void) { return false; }
+    bool rxAreFlightChannelsValid(void) { return false; }
+    bool failsafeIsReceivingRxData(void) { return false; }
     void pidResetIterm(void) {}
     void updateAdjustmentStates(void) {}
     void processRcAdjustments(controlRateConfig_t *) {}
@@ -186,7 +202,15 @@ extern "C" {
     bool isUpright(void) { return true; }
     void blackboxLogEvent(FlightLogEvent, union flightLogEventData_u *) {};
     void gyroFiltering(timeUs_t) {};
-    timeDelta_t rxGetFrameDelta(timeDelta_t *) { return 0; }
+    timeDelta_t rxGetFrameDelta() { return 0; }
     void updateRcRefreshRate(timeUs_t) {};
     uint16_t getAverageSystemLoadPercent(void) { return 0; }
+    bool isMotorProtocolEnabled(void) { return false; }
+    void pinioBoxTaskControl(void) {}
+    void sbufWriteU8(sbuf_t *, uint8_t) {}
+    void sbufWriteU16(sbuf_t *, uint16_t) {}
+    void sbufWriteU32(sbuf_t *, uint32_t) {}
+    void schedulerSetNextStateTime(timeDelta_t) {}
+    bool crashFlipSuccessful(void) {return false; }
+    bool canUseGPSHeading;
 }

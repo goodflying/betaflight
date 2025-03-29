@@ -18,6 +18,7 @@
 #pragma once
 
 #include <string.h>
+#include <stdarg.h>
 
 extern "C" {
     #include "drivers/display.h"
@@ -48,14 +49,15 @@ static int displayPortTestRelease(displayPort_t *displayPort)
     return 0;
 }
 
-static int displayPortTestClearScreen(displayPort_t *displayPort)
+static int displayPortTestClearScreen(displayPort_t *displayPort, displayClearOption_e options)
 {
     UNUSED(displayPort);
+    UNUSED(options);
     memset(testDisplayPortBuffer, ' ', UNITTEST_DISPLAYPORT_BUFFER_LEN);
     return 0;
 }
 
-static int displayPortTestDrawScreen(displayPort_t *displayPort)
+static bool displayPortTestDrawScreen(displayPort_t *displayPort)
 {
     UNUSED(displayPort);
     return 0;
@@ -97,9 +99,18 @@ static int displayPortTestHeartbeat(displayPort_t *displayPort)
     return 0;
 }
 
-static void displayPortTestResync(displayPort_t *displayPort)
+static void displayPortTestRedraw(displayPort_t *displayPort)
 {
     UNUSED(displayPort);
+}
+
+static int displayportWriteSys(displayPort_t *displayPort, uint8_t x, uint8_t y, displayPortSystemElement_e systemElement)
+{
+    UNUSED(displayPort);
+    UNUSED(x);
+    UNUSED(y);
+    UNUSED(systemElement);
+    return 0;
 }
 
 static uint32_t displayPortTestTxBytesFree(const displayPort_t *displayPort)
@@ -114,17 +125,28 @@ static const displayPortVTable_t testDisplayPortVTable = {
     .clearScreen = displayPortTestClearScreen,
     .drawScreen = displayPortTestDrawScreen,
     .screenSize = displayPortTestScreenSize,
+    .writeSys = displayportWriteSys,
     .writeString = displayPortTestWriteString,
     .writeChar = displayPortTestWriteChar,
     .isTransferInProgress = displayPortTestIsTransferInProgress,
     .heartbeat = displayPortTestHeartbeat,
-    .resync = displayPortTestResync,
-    .txBytesFree = displayPortTestTxBytesFree
+    .redraw = displayPortTestRedraw,
+    .isSynced = displayPortTestIsTransferInProgress,
+    .txBytesFree = displayPortTestTxBytesFree,
+    .layerSupported = NULL,
+    .layerSelect = NULL,
+    .layerCopy = NULL,
+    .writeFontCharacter = NULL,
+    .checkReady = NULL,
+    .beginTransaction = NULL,
+    .commitTransaction = NULL,
+    .getCanvas = NULL,
+    .setBackgroundType = NULL,
 };
 
 displayPort_t *displayPortTestInit(void)
 {
-    displayInit(&testDisplayPort, &testDisplayPortVTable);
+    displayInit(&testDisplayPort, &testDisplayPortVTable, DISPLAYPORT_DEVICE_TYPE_MAX7456);
     testDisplayPort.rows = UNITTEST_DISPLAYPORT_ROWS;
     testDisplayPort.cols = UNITTEST_DISPLAYPORT_COLS;
     return &testDisplayPort;

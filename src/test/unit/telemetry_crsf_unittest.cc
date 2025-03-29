@@ -43,8 +43,10 @@ extern "C" {
 
     #include "config/config.h"
     #include "fc/runtime_config.h"
+    #include "fc/rc_modes.h"
 
     #include "flight/pid.h"
+    #include "flight/gps_rescue.h"
     #include "flight/imu.h"
 
     #include "io/gps.h"
@@ -56,6 +58,9 @@ extern "C" {
     #include "sensors/battery.h"
     #include "sensors/sensors.h"
     #include "sensors/acceleration.h"
+    #include "sensors/barometer.h"
+
+    #include "msp/msp_serial.h"
 
     #include "telemetry/crsf.h"
     #include "telemetry/telemetry.h"
@@ -63,17 +68,22 @@ extern "C" {
 
     rssiSource_e rssiSource;
     bool airMode;
+    baro_t baro;
 
     uint16_t testBatteryVoltage = 0;
     int32_t testAmperage = 0;
     int32_t testmAhDrawn = 0;
 
     serialPort_t *telemetrySharedPort;
+
+    int getCrsfFrame(uint8_t *frame, crsfFrameType_e frameType);
+
     PG_REGISTER(batteryConfig_t, batteryConfig, PG_BATTERY_CONFIG, 0);
     PG_REGISTER(telemetryConfig_t, telemetryConfig, PG_TELEMETRY_CONFIG, 0);
     PG_REGISTER(systemConfig_t, systemConfig, PG_SYSTEM_CONFIG, 0);
     PG_REGISTER(rxConfig_t, rxConfig, PG_RX_CONFIG, 0);
     PG_REGISTER(accelerometerConfig_t, accelerometerConfig, PG_ACCELEROMETER_CONFIG, 0);
+    PG_REGISTER(gpsRescueConfig_t, gpsRescueConfig, PG_GPS_RESCUE, 0);
 }
 
 #include "unittest_macros.h"
@@ -259,10 +269,10 @@ TEST(TelemetryCrsfTest, TestFlightMode)
     EXPECT_EQ(CRSF_SYNC_BYTE, frame[0]); // address
     EXPECT_EQ(7, frame[1]); // length
     EXPECT_EQ(0x21, frame[2]); // type
-    EXPECT_EQ('S', frame[3]);
-    EXPECT_EQ('T', frame[4]);
-    EXPECT_EQ('A', frame[5]);
-    EXPECT_EQ('B', frame[6]);
+    EXPECT_EQ('A', frame[3]);
+    EXPECT_EQ('N', frame[4]);
+    EXPECT_EQ('G', frame[5]);
+    EXPECT_EQ('L', frame[6]);
     EXPECT_EQ(0, frame[7]);
     EXPECT_EQ(crfsCrc(frame, frameLen), frame[8]);
 
@@ -335,44 +345,55 @@ bool telemetryIsSensorEnabled(sensor_e) {return true;}
 
 portSharing_e determinePortSharing(const serialPortConfig_t *, serialPortFunction_e) {return PORTSHARING_NOT_SHARED;}
 
-bool airmodeIsEnabled(void) {return airMode;}
+bool isAirmodeEnabled(void) {return airMode;}
 
-int32_t getAmperage(void) {
+int32_t getAmperage(void)
+{
     return testAmperage;
 }
 
-uint16_t getBatteryVoltage(void) {
+uint16_t getBatteryVoltage(void)
+{
     return testBatteryVoltage;
 }
 
-uint16_t getLegacyBatteryVoltage(void) {
+uint16_t getLegacyBatteryVoltage(void)
+{
     return (testBatteryVoltage + 5) / 10;
 }
 
-uint16_t getBatteryAverageCellVoltage(void) {
+uint16_t getBatteryAverageCellVoltage(void)
+{
     return 0;
 }
 
-batteryState_e getBatteryState(void) {
+batteryState_e getBatteryState(void)
+{
     return BATTERY_OK;
 }
 
-uint8_t calculateBatteryPercentageRemaining(void) {
+uint8_t calculateBatteryPercentageRemaining(void)
+{
     return 67;
 }
 
-int32_t getEstimatedAltitudeCm(void) {
+int32_t getEstimatedAltitudeCm(void)
+{
 	return gpsSol.llh.altCm;    // function returns cm not m.
 }
+
+int16_t getEstimatedVario(void) { return 0; }
     
-int32_t getMAhDrawn(void){
+int32_t getMAhDrawn(void)
+{
   return testmAhDrawn;
 }
 
 bool sendMspReply(uint8_t, mspResponseFnPtr) { return false; }
-bool handleMspFrame(uint8_t *, int, uint8_t *)  { return false; }
-void crsfScheduleMspResponse(void) {};
+bool handleMspFrame(uint8_t *, uint8_t, uint8_t *)  { return false; }
 bool isBatteryVoltageConfigured(void) { return true; }
 bool isAmperageConfigured(void) { return true; }
-
+timeUs_t rxFrameTimeUs(void) { return 0; }
+bool IS_RC_MODE_ACTIVE(boxId_e) { return false; }
+bool gpsRescueIsConfigured(void) { return false; }
 }
